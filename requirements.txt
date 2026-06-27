@@ -1,0 +1,10 @@
+# Install a CUDA-specific torch build first if you want GPU acceleration:
+# https://pytorch.org/get-started/locally/
+torch
+openai-whisper
+opencv-python
+numpy
+PyYAML
+face-recognition
+ultralytics
+librosa

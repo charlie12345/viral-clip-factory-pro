@@ -1,0 +1,29 @@
+{
+  "name": "viral-clip-factory",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Local-first viral clip generator with a browser dashboard and Python render pipeline.",
+  "scripts": {
+    "start": "node dashboard/server.js",
+    "dev": "concurrently -k -n webui,server -c cyan,magenta \"npm:dev:webui\" \"npm:dev:server\"",
+    "dev:webui": "npm --prefix webui run dev",
+    "dev:server": "node dashboard/server.js",
+    "build": "./scripts/build-webui.sh",
+    "build:webui": "./scripts/build-webui.sh",
+    "install:all": "npm install && npm --prefix webui install",
+    "typecheck:webui": "cd webui && node ./node_modules/typescript/lib/tsc.js -b --noEmit"
+  },
+  "engines": {
+    "node": ">=20 <23"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "chokidar": "^5.0.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "express-fileupload": "^1.5.2"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

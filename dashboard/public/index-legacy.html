@@ -1,0 +1,2600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔥 Viral Clip Factory Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+        /* Local Fonts — Social-style */
+        @font-face { font-family: 'Anton'; src: url('/fonts/Anton-Regular.ttf'); }
+        @font-face { font-family: 'Montserrat Black'; src: url('/fonts/Montserrat-Black.ttf'); }
+        @font-face { font-family: 'Montserrat Bold'; src: url('/fonts/Montserrat-Bold.ttf'); }
+        @font-face { font-family: 'Poppins Black'; src: url('/fonts/Poppins-Black.ttf'); }
+        @font-face { font-family: 'Poppins Bold'; src: url('/fonts/Poppins-Bold.ttf'); }
+        @font-face { font-family: 'Oswald Bold'; src: url('/fonts/Oswald-Bold.ttf'); }
+        @font-face { font-family: 'Barlow Condensed Black'; src: url('/fonts/BarlowCondensed-Black.ttf'); }
+        @font-face { font-family: 'Bebas Neue'; src: url('/fonts/BebasNeue-Regular.ttf'); }
+        @font-face { font-family: 'Archivo Black'; src: url('/fonts/Archivo-Black.ttf'); }
+        @font-face { font-family: 'Rajdhani Bold'; src: url('/fonts/Rajdhani-Bold.ttf'); }
+        /* Windows Web Fonts (metric-compatible open-source equivalents) */
+        @font-face { font-family: 'Liberation Sans'; src: url('/fonts/LiberationSans-Bold.ttf'); font-weight: bold; }
+        @font-face { font-family: 'Liberation Serif'; src: url('/fonts/LiberationSerif-Bold.ttf'); font-weight: bold; }
+        @font-face { font-family: 'Liberation Mono'; src: url('/fonts/LiberationMono-Bold.ttf'); font-weight: bold; }
+        @font-face { font-family: 'Liberation Sans Narrow'; src: url('/fonts/LiberationSansNarrow-Bold.ttf'); font-weight: bold; }
+        @font-face { font-family: 'Comic Neue'; src: url('/fonts/ComicNeue-Bold.ttf'); font-weight: bold; }
+        /* Open-source alternatives */
+        @font-face { font-family: 'DejaVu Sans'; src: url('/fonts/DejaVuSans-Bold.ttf'); font-weight: bold; }
+        @font-face { font-family: 'DejaVu Serif'; src: url('/fonts/DejaVuSerif-Bold.ttf'); font-weight: bold; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #312e81 100%);
+            min-height: 100vh;
+        }
+        .gradient-text {
+            background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 50%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .card-gradient {
+            background: linear-gradient(135deg, rgba(139,92,246,.1) 0%, rgba(59,130,246,.1) 100%);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(139,92,246,.2);
+        }
+        .upload-zone {
+            background: linear-gradient(135deg, rgba(236,72,153,.05) 0%, rgba(139,92,246,.05) 100%);
+            border: 2px dashed rgba(139,92,246,.3);
+            transition: all .3s ease;
+        }
+        .upload-zone:hover {
+            border-color: rgba(139,92,246,.6);
+            background: linear-gradient(135deg, rgba(236,72,153,.1) 0%, rgba(139,92,246,.1) 100%);
+            transform: scale(1.01);
+        }
+        .upload-zone.dragging {
+            border-color: #8b5cf6;
+            background: linear-gradient(135deg, rgba(236,72,153,.2) 0%, rgba(139,92,246,.2) 100%);
+            transform: scale(1.02);
+        }
+        .stat-card {
+            background: rgba(30,27,75,.5);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(139,92,246,.2);
+        }
+        .pulse-dot { animation: pulse 2s cubic-bezier(.4,0,.6,1) infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+        .log-container {
+            background: rgba(15,23,42,.8);
+            border: 1px solid rgba(139,92,246,.2);
+            font-family: 'Monaco','Courier New',monospace;
+            user-select: text;
+            -webkit-user-select: text;
+            white-space: pre-wrap;
+        }
+        .log-line { cursor: text; }
+        .clip-card {
+            background: rgba(30,27,75,.5);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(139,92,246,.2);
+            transition: all .3s ease;
+        }
+        .clip-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(139,92,246,.5);
+            box-shadow: 0 20px 25px -5px rgba(139,92,246,.2);
+        }
+        .score-badge {
+            background: linear-gradient(135deg,#ec4899 0%,#8b5cf6 100%);
+            box-shadow: 0 0 20px rgba(236,72,153,.5);
+        }
+        .processing-animation { animation: processing 2s ease-in-out infinite; }
+        @keyframes processing { 0%,100%{opacity:.5} 50%{opacity:1} }
+
+        /* Clip count selector */
+        .clip-count-btn { display:inline-flex; }
+        .clip-count-btn input[type="radio"] { display:none; }
+        .clip-count-btn span {
+            display:flex; align-items:center; justify-content:center;
+            width:38px; height:34px; border-radius:8px; cursor:pointer;
+            border: 2px solid rgba(139,92,246,.25);
+            background: rgba(139,92,246,.08);
+            color: #9ca3af; font-size:.78rem; font-weight:700;
+            transition: all .2s;
+        }
+        .clip-count-btn input:checked + span {
+            border-color: #ec4899; background: rgba(236,72,153,.25); color:#fff;
+        }
+        .clip-count-btn span:hover { border-color: rgba(236,72,153,.5); color:#ddd; }
+
+        /* Duration selector */
+        .dur-option input[type="radio"] { display:none; }
+        .dur-option label {
+            display:flex; align-items:center; justify-content:center; gap:6px;
+            padding: 8px 10px; border-radius:8px; cursor:pointer;
+            border: 2px solid rgba(139,92,246,.25);
+            background: rgba(139,92,246,.08);
+            color: #9ca3af; font-size:.75rem; font-weight:600;
+            transition: all .2s;
+        }
+        .dur-option input:checked + label {
+            border-color: #8b5cf6; background: rgba(139,92,246,.25); color:#fff;
+        }
+        .dur-option label:hover { border-color: rgba(139,92,246,.5); color:#ddd; }
+
+        /* ── Caption Editor Modal (two-panel) ───────────────────────── */
+        #subtitleModal { position:fixed; inset:0; background:rgba(0,0,0,.82); z-index:1000; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px); }
+        #subtitleModal.hidden { display:none !important; }
+        .modal-editor { background:#13101f; border:1px solid rgba(139,92,246,.4); border-radius:16px; width:min(1100px,96vw); max-height:92vh; display:flex; flex-direction:column; box-shadow:0 30px 80px rgba(0,0,0,.7); }
+        .modal-head { display:flex; align-items:center; justify-content:space-between; padding:13px 18px; border-bottom:1px solid rgba(139,92,246,.2); flex-shrink:0; }
+        .modal-panels { display:flex; flex:1; overflow:hidden; min-height:0; }
+        .preview-panel { width:274px; flex-shrink:0; padding:14px; border-right:1px solid rgba(139,92,246,.15); display:flex; flex-direction:column; align-items:center; overflow-y:auto; background:rgba(0,0,0,.25); }
+        .controls-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; padding:14px; }
+        #previewContainer { position:relative; width:234px; aspect-ratio:9/16; background:#000; border-radius:8px; overflow:hidden; border:2px solid rgba(139,92,246,.35); user-select:none; flex-shrink:0; }
+        #previewVideo { width:100%; height:100%; object-fit:cover; display:block; }
+        #subtitleOverlayWrapper { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
+        #subtitleOverlay { position:absolute; cursor:grab; pointer-events:auto; text-align:center; transform:translate(-50%,-50%); z-index:10; min-width:60px; min-height:16px; }
+        #subtitleOverlay:active { cursor:grabbing; }
+        #overlayText { line-height:1.25; min-height:1em; }
+        .resize-handle { position:absolute; top:0; bottom:0; width:12px; cursor:ew-resize; z-index:11; }
+        .resize-left  { left:-6px; }
+        .resize-right { right:-6px; }
+        #overlayText span { display:inline-block; transition:color .08s, transform .08s; }
+        .style-thumbs { display:flex; flex-wrap:wrap; gap:5px; }
+        .style-thumb { padding:4px 10px; border-radius:7px; border:2px solid rgba(139,92,246,.25); background:rgba(139,92,246,.08); color:#9ca3af; font-size:.68rem; font-weight:700; cursor:pointer; transition:all .15s; white-space:nowrap; }
+        .style-thumb:hover { border-color:rgba(139,92,246,.5); color:#ddd; background:rgba(139,92,246,.15); }
+        .style-thumb.active { border-color:#8b5cf6; background:rgba(139,92,246,.35); color:#fff; box-shadow:0 0 8px rgba(139,92,246,.4); }
+        .style-section-label { width:100%; text-align:left; font-size:.62rem; color:#4b5563; font-weight:600; text-transform:uppercase; letter-spacing:.05em; margin-top:6px; margin-bottom:2px; padding-left:2px; }
+        input[type=range].sub-slider { -webkit-appearance:none; width:100%; height:5px; border-radius:3px; background:#374151; outline:none; cursor:pointer; }
+        input[type=range].sub-slider::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:#8b5cf6; cursor:pointer; box-shadow:0 0 5px rgba(139,92,246,.6); }
+        .word-chunk { margin-bottom:9px; }
+        .chunk-line { display:flex; flex-wrap:wrap; gap:5px; padding:7px; background:rgba(15,23,42,.5); border-radius:7px; border:1px solid rgba(139,92,246,.15); }
+        .word-token { background:rgba(139,92,246,.2); border:1px solid rgba(139,92,246,.3); border-radius:4px; padding:2px 5px; color:#e2e8f0; font-size:.73rem; cursor:text; min-width:26px; outline:none; transition:background .12s, border-color .12s; }
+        .word-token:focus { background:rgba(139,92,246,.4); border-color:#8b5cf6; }
+        .chunk-time { font-size:.6rem; color:#6b7280; margin-bottom:3px; }
+        select option { background:#13101f; }
+
+        /* ── Word entry/active animations ───────────────────────────── */
+        @keyframes wordPopIn     { 0%{transform:scale(0) rotate(-5deg);opacity:0} 60%{transform:scale(1.25)} 100%{transform:scale(1);opacity:1} }
+        @keyframes wordFadeIn    { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+        @keyframes wordSlideUp   { from{opacity:0;transform:translateY(18px)} to{opacity:1;transform:none} }
+        @keyframes wordSlideDown { from{opacity:0;transform:translateY(-18px)} to{opacity:1;transform:none} }
+        @keyframes wordZoom      { 0%,100%{transform:scale(1)} 50%{transform:scale(1.4)} }
+        @keyframes wordBounce    { 0%,100%{transform:translateY(0)} 45%{transform:translateY(-10px)} 65%{transform:translateY(-4px)} }
+        @keyframes wordShake     { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-5px)} 40%,80%{transform:translateX(5px)} }
+        @keyframes wordGlow      { 0%,100%{filter:brightness(1)} 50%{filter:brightness(1.7) drop-shadow(0 0 8px currentColor)} }
+        @keyframes wordFlip      { from{transform:rotateY(90deg);opacity:0} to{transform:rotateY(0deg);opacity:1} }
+        @keyframes wordTypewrite { from{opacity:0;transform:scale(.5)} to{opacity:1;transform:scale(1)} }
+        @keyframes wordWave      { 0%,100%{transform:translateY(0) rotate(0)} 25%{transform:translateY(-6px) rotate(-3deg)} 75%{transform:translateY(6px) rotate(3deg)} }
+        /* Pause word animations when video is paused */
+        #subtitleOverlayWrapper.video-paused span { animation-play-state: paused !important; }
+        .anim-tag { display:inline-flex; align-items:center; padding:3px 9px; border-radius:6px; border:2px solid rgba(139,92,246,.25); background:rgba(139,92,246,.08); color:#9ca3af; font-size:.65rem; font-weight:700; cursor:pointer; transition:all .15s; white-space:nowrap; }
+        .anim-tag:hover { border-color:rgba(139,92,246,.5); color:#ddd; background:rgba(139,92,246,.15); }
+        .anim-tag.active { border-color:#ec4899; background:rgba(236,72,153,.25); color:#fff; box-shadow:0 0 8px rgba(236,72,153,.35); }
+
+        /* ── Mobile responsive modal ─────────────────────────────────── */
+        @media (max-width:640px) {
+            #subtitleModal { align-items:flex-end; }
+            .modal-editor { width:100% !important; max-height:98vh; border-radius:16px 16px 0 0; border-left:none; border-right:none; border-bottom:none; }
+            .modal-panels { flex-direction:column; overflow-y:auto; max-height:calc(98vh - 100px); -webkit-overflow-scrolling:touch; }
+            .preview-panel { width:100%; flex-direction:row !important; border-right:none; border-bottom:1px solid rgba(139,92,246,.15); padding:10px; gap:12px; overflow-y:visible; align-items:flex-start; flex-shrink:0; }
+            #previewContainer { width:160px !important; flex-shrink:0; }
+            .controls-panel { padding:10px; min-height:0; overflow-y:visible; flex-shrink:0; }
+            /* Style thumbs: scrollable horizontal strip on mobile */
+            .style-thumbs { flex-wrap:wrap; max-height:80px; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+            /* Anim tags: horizontal scroll on mobile so nothing is clipped */
+            #animTags { display:flex; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; gap:6px; padding-bottom:4px; }
+            #animTags::-webkit-scrollbar { height:3px; }
+            #animTags::-webkit-scrollbar-thumb { background:rgba(139,92,246,.4); border-radius:2px; }
+            .modal-head { padding:10px 14px; }
+            #previewContainer ~ div { flex:1; min-width:0; }
+            /* Font picker & slider inline with label on mobile */
+            .preview-panel > .w-full { width:100%; }
+            /* Word editor area: fixed height so it scrolls within the overall panel */
+            #subtitleEditorBody { max-height:200px; overflow-y:auto; }
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+<div class="max-w-7xl mx-auto">
+
+    <!-- Header -->
+    <header class="mb-8 text-center">
+        <h1 class="text-5xl md:text-6xl font-black gradient-text mb-2 flex items-center justify-center gap-4">
+            <i class="fas fa-fire-alt"></i> Viral Clip Factory Pro
+        </h1>
+        <p class="text-gray-400 text-lg">AI-Powered Short Form Content Generator</p>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+            <div class="stat-card p-4 rounded-xl">
+                <div class="text-3xl font-bold text-purple-400" id="totalClips">0</div>
+                <div class="text-xs text-gray-400 mt-1">Total Clips</div>
+            </div>
+            <div class="stat-card p-4 rounded-xl">
+                <div class="text-3xl font-bold text-pink-400" id="processingStatus">Idle</div>
+                <div class="text-xs text-gray-400 mt-1">Status</div>
+            </div>
+            <div class="stat-card p-4 rounded-xl">
+                <div class="text-3xl font-bold text-blue-400" id="avgScore">0.0</div>
+                <div class="text-xs text-gray-400 mt-1">Avg Score</div>
+            </div>
+            <div class="stat-card p-4 rounded-xl">
+                <div class="text-3xl font-bold text-green-400" id="topScore">0.0</div>
+                <div class="text-xs text-gray-400 mt-1">Top Score</div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+
+        <!-- Left: Upload & Config -->
+        <div class="lg:col-span-1">
+            <div class="card-gradient p-6 rounded-2xl shadow-2xl">
+                <h2 class="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                    <i class="fas fa-upload text-purple-400"></i> Upload & Configure
+                </h2>
+
+                <!-- Mode -->
+                <div class="mb-4">
+                    <label class="text-xs text-gray-400 mb-2 block font-semibold">📽️ Output Mode</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="flex items-center justify-center gap-2 p-3 rounded-lg cursor-pointer transition bg-purple-500/20 border-2 border-purple-500 text-white mode-label">
+                            <input type="radio" name="mode" value="shorts" checked class="hidden">
+                            <i class="fas fa-mobile-alt"></i><span class="font-semibold text-sm">Shorts 9:16</span>
+                        </label>
+                        <label class="flex items-center justify-center gap-2 p-3 rounded-lg cursor-pointer transition bg-gray-700/20 border-2 border-gray-600 text-gray-400 hover:bg-gray-700/30 mode-label">
+                            <input type="radio" name="mode" value="longform" class="hidden">
+                            <i class="fas fa-tv"></i><span class="font-semibold text-sm">Long 16:9</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Max Duration -->
+                <div class="mb-4">
+                    <label class="text-xs text-gray-400 mb-2 block font-semibold">⏱️ Max Clip Duration</label>
+                    <div class="grid grid-cols-4 gap-2">
+                        <div class="dur-option">
+                            <input type="radio" name="maxDuration" value="30" id="dur30">
+                            <label for="dur30"><i class="fas fa-bolt"></i> 30s</label>
+                        </div>
+                        <div class="dur-option">
+                            <input type="radio" name="maxDuration" value="60" id="dur60">
+                            <label for="dur60"><i class="fas fa-bolt"></i> 1 min</label>
+                        </div>
+                        <div class="dur-option">
+                            <input type="radio" name="maxDuration" value="120" id="dur120">
+                            <label for="dur120"><i class="fas fa-clock"></i> 2 min</label>
+                        </div>
+                        <div class="dur-option">
+                            <input type="radio" name="maxDuration" value="180" id="dur180" checked>
+                            <label for="dur180"><i class="fas fa-film"></i> 3 min</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Caption Style -->
+                <div class="mb-4">
+                    <label class="text-xs text-gray-400 mb-2 block font-semibold">💬 Caption Style</label>
+                    <select id="subtitleStyle" class="w-full bg-gray-800/50 border-2 border-purple-500/30 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition text-sm">
+                        <optgroup label="— Animated Highlight —">
+                            <option value="classic">Classic — Rainbow word-by-word</option>
+                            <option value="bold">Bold — Cyan animated</option>
+                            <option value="pulse">Pulse — Color pop</option>
+                            <option value="neon">Neon — Glow cycle</option>
+                            <option value="wave">Wave — Alternating flow</option>
+                            <option value="gradient">Gradient — Warm color shift</option>
+                            <option value="karaoke">Karaoke — Yellow progress</option>
+                            <option value="whip">Whip — Hot-pink snap</option>
+                        </optgroup>
+                        <optgroup label="— High Impact —">
+                            <option value="explosive">Impact — Hard pop-in</option>
+                            <option value="electric">Electric — High-energy flash</option>
+                            <option value="fire">Fire — Orange/red blast</option>
+                            <option value="bounce">Bounce — Spring motion</option>
+                            <option value="stark">Stark — Boxed word pop</option>
+                            <option value="glitch">Glitch — Chromatic aberration</option>
+                            <option value="spotlight">Spotlight — Single huge word</option>
+                            <option value="duo">Duo — Two words, pink active</option>
+                        </optgroup>
+                        <optgroup label="— Clean &amp; Cinematic —">
+                            <option value="clean">Clean — Minimal subtitle</option>
+                            <option value="cinematic">Cinematic — Film-style bar</option>
+                            <option value="outline">Outline — Thick border pop</option>
+                            <option value="shadow">Shadow — Deep drop shadow</option>
+                            <option value="gold">Gold — Premium accent</option>
+                            <option value="subtitle">Subtitle — Classic bottom strip</option>
+                        </optgroup>
+                        <option value="none">No Captions</option>
+                    </select>
+                </div>
+
+                <!-- Clip Count -->
+                <div class="mb-4 p-4 bg-gray-900/50 rounded-lg border border-purple-500/20">
+                    <label class="text-xs text-gray-400 mb-2 block font-semibold">🎬 Max Clips to Export</label>
+                    <div class="flex flex-wrap gap-2">
+                        <label class="clip-count-btn"><input type="radio" name="maxClips" value="5"> <span>5</span></label>
+                        <label class="clip-count-btn"><input type="radio" name="maxClips" value="10"> <span>10</span></label>
+                        <label class="clip-count-btn"><input type="radio" name="maxClips" value="15"> <span>15</span></label>
+                        <label class="clip-count-btn"><input type="radio" name="maxClips" value="20"> <span>20</span></label>
+                        <label class="clip-count-btn"><input type="radio" name="maxClips" value="25"> <span>25</span></label>
+                        <label class="clip-count-btn"><input type="radio" name="maxClips" value="30" checked> <span>30</span></label>
+                        <label class="clip-count-btn"><input type="radio" name="maxClips" value="35"> <span>35</span></label>
+                        <label class="clip-count-btn"><input type="radio" name="maxClips" value="40"> <span>40</span></label>
+                        <label class="clip-count-btn"><input type="radio" name="maxClips" value="45"> <span>45</span></label>
+                        <label class="clip-count-btn"><input type="radio" name="maxClips" value="50"> <span>50</span></label>
+                    </div>
+                </div>
+
+                <!-- Time Segment Choices -->
+                <div class="mb-4 p-4 bg-gray-900/50 rounded-lg border border-purple-500/20">
+                    <label class="text-xs text-gray-400 mb-2 block font-semibold">🧭 Time Segment</label>
+                    <select id="segmentPreset" class="w-full bg-gray-800/50 border border-purple-500/30 rounded-lg px-3 py-2 text-white text-sm mb-2">
+                        <option value="full">Full video</option>
+                        <optgroup label="— From Start —">
+                            <option value="first60">First 1 minute</option>
+                            <option value="first180">First 3 minutes</option>
+                            <option value="first300">First 5 minutes</option>
+                            <option value="first600">First 10 minutes</option>
+                            <option value="first1800">First 30 minutes</option>
+                        </optgroup>
+                        <optgroup label="— Middle Segments —">
+                            <option value="seg_1_3">Minutes 1–3</option>
+                            <option value="seg_3_6">Minutes 3–6</option>
+                            <option value="seg_6_9">Minutes 6–9</option>
+                            <option value="seg_9_12">Minutes 9–12</option>
+                            <option value="seg_12_17">Minutes 12–17</option>
+                        </optgroup>
+                        <optgroup label="— From End —">
+                            <option value="last60">Last 1 minute</option>
+                            <option value="last180">Last 3 minutes</option>
+                            <option value="last300">Last 5 minutes</option>
+                        </optgroup>
+                        <option value="custom">Custom range…</option>
+                    </select>
+                    <div id="customSegmentRow" class="hidden grid grid-cols-2 gap-2">
+                        <input id="startTime" type="number" min="0" step="1" placeholder="Start (s)"
+                               class="bg-gray-800/50 border border-purple-500/30 rounded-lg px-3 py-2 text-white text-sm">
+                        <input id="endTime" type="number" min="0" step="1" placeholder="End (s)"
+                               class="bg-gray-800/50 border border-purple-500/30 rounded-lg px-3 py-2 text-white text-sm">
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">Limit analysis to a segment for faster testing and targeted clipping.</p>
+                </div>
+
+                <!-- Advanced Options -->
+                <div class="mb-4 p-4 bg-gray-900/50 rounded-lg border border-purple-500/20">
+                    <label class="text-xs text-gray-400 mb-3 block font-semibold">⚙️ Advanced</label>
+                    <label class="flex items-center gap-3 cursor-pointer group mb-2">
+                        <input type="checkbox" id="upscale" class="w-5 h-5 rounded accent-purple-500">
+                        <div>
+                            <div class="text-sm text-white font-medium group-hover:text-purple-400 transition">8K Upscaling</div>
+                            <div class="text-xs text-gray-500">Slower, higher quality output</div>
+                        </div>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer group">
+                        <input type="checkbox" id="autoSort" class="w-5 h-5 rounded accent-purple-500" checked>
+                        <div>
+                            <div class="text-sm text-white font-medium group-hover:text-purple-400 transition">Sort by Score</div>
+                            <div class="text-xs text-gray-500">Show highest viral potential first</div>
+                        </div>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer group mt-2">
+                        <input type="checkbox" id="keepAwake" class="w-5 h-5 rounded accent-purple-500" checked>
+                        <div>
+                            <div class="text-sm text-white font-medium group-hover:text-purple-400 transition">Keep Screen Awake</div>
+                            <div class="text-xs text-gray-500">Helps stop phone sleep from interrupting uploads</div>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Drop Zone -->
+                <div id="dropZone" class="upload-zone rounded-xl p-8 text-center cursor-pointer mb-4">
+                    <input type="file" id="videoInput" class="hidden" accept="video/*">
+                    <i class="fas fa-cloud-upload-alt text-5xl text-purple-400 mb-3 block"></i>
+                    <p class="font-bold text-white text-lg mb-1">Drop video here</p>
+                    <p class="text-sm text-gray-400 mb-2">or click to browse</p>
+                    <p class="text-xs text-gray-500">Supports up to 50GB • MP4, MOV, MKV, AVI</p>
+                </div>
+
+                <!-- Video URL Input -->
+                <div class="flex gap-2 mb-1">
+                    <input type="text" id="videoUrl" placeholder="Paste video URL…"
+                           class="flex-1 bg-gray-800/50 border-2 border-purple-500/30 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 transition">
+                    <button id="urlBtn" class="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-4 rounded-lg font-bold transition shadow-lg hover:shadow-purple-500/50">
+                        <i class="fas fa-download"></i>
+                    </button>
+                </div>
+                <p class="text-xs text-gray-600 mb-4">Supports most major video platforms</p>
+
+                <!-- Progress -->
+                <div id="uploadProgressContainer" class="hidden">
+                    <div class="flex justify-between text-xs mb-2">
+                        <span id="statusText" class="text-purple-300 font-bold">Processing...</span>
+                        <span id="uploadPercent" class="text-white font-mono">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-700/50 rounded-full h-3 overflow-hidden border border-purple-500/30">
+                        <div id="progressBar" class="bg-gradient-to-r from-pink-500 to-purple-500 h-3 rounded-full transition-all duration-300 shadow-lg" style="width:0%"></div>
+                    </div>
+                    <div class="text-xs text-gray-400 mt-2" id="uploadSpeed"></div>
+                    <div class="text-[11px] text-gray-500 mt-1" id="uploadPhaseHint">Uploading sends the file first. Clip processing starts after the server confirms the full upload.</div>
+                    <div id="wakeLockStatus" class="hidden"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Live Logs -->
+        <div class="lg:col-span-2">
+            <div class="card-gradient p-6 rounded-2xl shadow-2xl h-full">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i class="fas fa-terminal text-green-400"></i>
+                        Live Processing Logs
+                        <span id="liveIndicator" class="hidden">
+                            <span class="pulse-dot inline-block w-2 h-2 bg-green-400 rounded-full"></span>
+                        </span>
+                    </h2>
+                    <div class="flex gap-2">
+                        <button onclick="copyLogs()" class="text-xs bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded transition">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                        <button onclick="clearLogs()" class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded transition">
+                            <i class="fas fa-trash"></i> Clear
+                        </button>
+                    </div>
+                </div>
+                <div id="logsContainer" class="log-container rounded-lg p-4 h-96 overflow-y-auto text-xs text-green-400 space-y-1">
+                    <div class="text-gray-500 italic">Waiting for upload...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gallery -->
+    <div class="card-gradient p-6 rounded-2xl shadow-2xl">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-2xl font-bold text-white flex items-center gap-3">
+                <i class="fas fa-fire text-orange-400"></i> Viral Clips Gallery
+            </h2>
+            <div class="flex gap-2">
+                <button onclick="loadClips()" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold transition shadow-lg hover:shadow-purple-500/50">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+                <button onclick="deleteAllClips()" class="bg-red-500/20 hover:bg-red-500/30 text-red-400 px-4 py-2 rounded-lg font-semibold transition border border-red-500/30">
+                    <i class="fas fa-trash-alt"></i> Clear All
+                </button>
+            </div>
+        </div>
+        <div id="clipsGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+            <div class="col-span-full text-center py-12 text-gray-500 no-clips-placeholder">
+                <i class="fas fa-video text-5xl mb-3 opacity-50"></i>
+                <p>No clips yet. Upload a video to get started!</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="text-center mt-8 text-gray-500 text-sm">
+        <p>Powered by AI • Whisper Transcription • YOLO Detection • NVENC Encoding</p>
+        <p class="mt-1">Made with <i class="fas fa-heart text-red-500"></i> for viral content creators</p>
+    </div>
+</div>
+
+<!-- Caption Editor Modal (two-panel: live preview + controls) -->
+<div id="subtitleModal" class="hidden">
+    <div class="modal-editor">
+
+        <!-- Header -->
+        <div class="modal-head">
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+                <i class="fas fa-closed-captioning text-purple-400"></i> Caption Editor
+                <span id="editorClipName" class="text-purple-300 font-mono text-xs opacity-70 ml-1 max-w-xs truncate"></span>
+            </h3>
+            <button onclick="closeSubtitleEditor()" class="text-gray-400 hover:text-white transition text-2xl leading-none w-8 h-8 flex items-center justify-center">&times;</button>
+        </div>
+
+        <!-- Two-panel body -->
+        <div class="modal-panels">
+
+            <!-- Left: Live video preview with draggable subtitle overlay -->
+            <div class="preview-panel">
+                <p class="text-xs text-gray-500 mb-2 text-center">Drag subtitle to reposition</p>
+                <div id="previewContainer">
+                    <video id="previewVideo" preload="auto" playsinline controls></video>
+                    <div id="subtitleOverlayWrapper">
+                        <div id="subtitleOverlay" title="Drag to move">
+                            <div id="resizeHandleL" class="resize-handle resize-left"></div>
+                            <div id="overlayText"></div>
+                            <div id="resizeHandleR" class="resize-handle resize-right"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Font size control -->
+                <div class="w-full mt-3">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-xs text-gray-400">Font Size</span>
+                        <span class="text-xs text-purple-300 font-mono"><span id="fontSizeVal">90</span> pt</span>
+                    </div>
+                    <input type="range" id="fontSizeSlider" class="sub-slider" min="40" max="160" value="90">
+                </div>
+
+                <!-- Position display -->
+                <div class="w-full mt-2 flex justify-between items-center">
+                    <span class="text-xs text-gray-500" id="posDisplay">X:50% Y:80%</span>
+                    <button onclick="resetOverlayPosition()" class="text-xs text-purple-400 hover:text-purple-300 transition">Reset</button>
+                </div>
+
+                <!-- Video Zoom / Pan -->
+                <div class="w-full mt-3">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-xs text-gray-400">Video Zoom</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-purple-300 font-mono"><span id="videoZoomVal">1.0</span>x</span>
+                            <button onclick="resetVideoTransform()" class="text-xs text-purple-400 hover:text-purple-300 transition">Reset</button>
+                        </div>
+                    </div>
+                    <input type="range" id="videoZoomSlider" class="sub-slider" min="100" max="400" value="100" step="5">
+                    <p class="text-xs text-gray-600 mt-1">Scroll wheel to zoom · Drag video (when zoomed) to pan</p>
+                </div>
+
+                <p class="text-xs text-gray-600 mt-2 text-center leading-tight px-2">Play to preview subtitle timing live</p>
+            </div>
+
+            <!-- Right: Style picker + text editor -->
+            <div class="controls-panel">
+
+                <!-- Style thumbnail picker -->
+                <div class="mb-2 flex-shrink-0">
+                    <label class="text-xs text-gray-400 font-semibold block mb-2">Caption Style</label>
+                    <div id="styleThumbs" class="style-thumbs"></div>
+                </div>
+
+                <!-- Font picker -->
+                <div class="mb-2 flex-shrink-0 flex items-center gap-3">
+                    <label class="text-xs text-gray-400 font-semibold whitespace-nowrap">Font</label>
+                    <select id="fontPicker" class="flex-1 bg-gray-900/80 border border-purple-500/30 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-purple-500 transition">
+                    </select>
+                </div>
+
+                <!-- Word Animation picker -->
+                <div class="mb-3 flex-shrink-0">
+                    <div class="flex items-center gap-2 mb-1.5">
+                        <label class="text-xs text-gray-400 font-semibold">Word Animation</label>
+                        <span class="text-xs text-gray-600 italic">— how words enter/move</span>
+                    </div>
+                    <div id="animTags" class="flex flex-wrap gap-1.5"></div>
+                    <div id="animHint" class="text-xs text-gray-600 mt-1 hidden"></div>
+                </div>
+
+                <!-- Caption text editor -->
+                <div class="flex flex-col flex-1 overflow-hidden min-h-0">
+                    <div class="flex justify-between items-center mb-1 flex-shrink-0">
+                        <label class="text-xs text-gray-400 font-semibold">Caption Text</label>
+                        <span id="wordCount" class="text-xs text-gray-500 font-mono">0 words</span>
+                    </div>
+                    <textarea id="subtitleTextBox" rows="3"
+                        class="w-full bg-gray-900/80 border-2 border-purple-500/40 rounded-lg px-3 py-2 text-white text-sm leading-relaxed resize-none focus:outline-none focus:border-purple-500 transition font-mono mb-2 flex-shrink-0"
+                        placeholder="Edit caption text — word timings are preserved automatically"></textarea>
+                    <div id="subtitleEditorBody" class="overflow-y-auto flex-1 min-h-0 pr-1"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="flex-shrink-0 p-4 border-t border-purple-500/20 flex flex-col gap-3">
+            <!-- Bake progress bar — shown while rendering -->
+            <div id="bakeProgressArea" class="hidden w-full">
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="text-gray-400" id="bakeProgressLabel">Rendering…</span>
+                    <span class="text-purple-300 font-bold" id="bakeProgressPct">0%</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-2 overflow-hidden">
+                    <div id="bakeProgressBar" class="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300" style="width:0%"></div>
+                </div>
+            </div>
+            <div class="flex items-center justify-between gap-3">
+                <button onclick="closeSubtitleEditor()"
+                        class="bg-gray-700 hover:bg-gray-600 text-white px-5 py-2 rounded-lg font-semibold transition text-sm">
+                    Cancel
+                </button>
+                <div class="flex gap-2 flex-wrap justify-end">
+                    <button onclick="applySubtitleEdits()" id="applyBtn"
+                            title="Save subtitle edits and re-render this clip in place (replaces the stored clip)"
+                            class="bg-indigo-600/80 hover:bg-indigo-600 text-white px-5 py-2 rounded-lg font-bold transition text-sm">
+                        <i class="fas fa-sync-alt"></i> Apply &amp; Re-render
+                    </button>
+                    <button onclick="bakeAndDownload()" id="bakeDownloadBtn"
+                            title="Export a final video with your exact caption position &amp; size — downloads without changing the stored clip"
+                            class="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-6 py-2 rounded-lg font-bold transition shadow-lg text-sm">
+                        <i class="fas fa-download"></i> Bake &amp; Download
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let isProcessing = false;
+    let logPollingInterval = null;
+    let subtitleEditorClip  = null;
+    let subtitleEditorWords = [];
+    const loadedClipNames   = new Set();
+    const UPLOAD_STYLE_STORAGE_KEY = 'vcf_upload_style';
+    const EDITOR_STYLE_STORAGE_KEY = 'vcf_editor_style';
+    const EDITOR_ANIMATION_STORAGE_KEY = 'vcf_editor_animation';
+    const UPLOAD_SESSION_STORAGE_KEY = 'vcf_upload_session';
+    const RESUMABLE_CHUNK_SIZE = 8 * 1024 * 1024;
+    const KEEP_AWAKE_STORAGE_KEY = 'vcf_keep_awake';
+    let uploadWakeLockSentinel = null;
+    let uploadWakeLockWanted = false;
+    let isUploadingFile = false;
+
+    // Lazy-load video metadata only when the card enters the viewport
+    const _videoObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const v = entry.target;
+                if (v.preload === 'none') v.preload = 'metadata';
+                _videoObserver.unobserve(v);
+            }
+        });
+    }, { rootMargin: '300px' });
+
+    // ── Caption editor overlay state ─────────────────────────────────────────
+    let overlayPosX       = 0.5;   // horizontal center fraction [0,1]
+    let overlayPosY       = 0.80;  // vertical center fraction [0,1]
+    let overlayWidth      = 0.80;  // fraction of container width [0.15,1.0]
+    let overlayFontSize   = 90;    // ASS pt (scaled for preview)
+    let subtitleTimeOffset = 0;    // clip start time in source video (word timestamps are absolute)
+    let currentOverlayStyle = 'classic';
+    let currentFont       = null;  // null = use style default
+    let currentAnimation  = 'none';
+    let _demoInterval     = null;
+    let _demoChunkIdx     = 0;
+
+    // Video zoom / pan state (caption editor only)
+    let videoZoom    = 1.0;         // 1.0–4.0
+    let videoPanXPx  = 0.0;         // screen-pixel offset (clamped in applyVideoTransform)
+    let videoPanYPx  = 0.0;
+    let _vidPan      = { active: false, sx: 0, sy: 0, spx: 0, spy: 0 };
+
+    // Available fonts for preview. Bake output still depends on system fonts installed on the machine.
+    const FONT_LIST = [
+        { id: null,                      label: '— Style Default',              group: '' },
+        // Bundled creator fonts
+        { id: null,                      label: '── Bundled Creator Fonts ──',   group: 'header' },
+        { id: 'Montserrat Black',        label: 'Montserrat Black',              group: 'social' },
+        { id: 'Montserrat Bold',         label: 'Montserrat Bold',               group: 'social' },
+        { id: 'Anton',                   label: 'Anton',                         group: 'social' },
+        { id: 'Bebas Neue',              label: 'Bebas Neue',                    group: 'social' },
+        { id: 'Oswald Bold',             label: 'Oswald Bold',                   group: 'social' },
+        { id: 'Poppins Black',           label: 'Poppins Black',                 group: 'social' },
+        { id: 'Poppins Bold',            label: 'Poppins Bold',                  group: 'social' },
+        { id: 'Barlow Condensed Black',  label: 'Barlow Condensed Black',        group: 'social' },
+        { id: 'Archivo Black',           label: 'Archivo Black',                 group: 'social' },
+        { id: 'Rajdhani Bold',           label: 'Rajdhani Bold',                 group: 'social' },
+        // Bundled compatible fonts
+        { id: null,                      label: '── Bundled Compatible Fonts ──', group: 'header' },
+        { id: 'Liberation Sans',         label: 'Arial Bold (Liberation Sans)',   group: 'windows' },
+        { id: 'Liberation Serif',        label: 'Times New Roman (Liberation Serif)', group: 'windows' },
+        { id: 'Liberation Mono',         label: 'Courier New (Liberation Mono)', group: 'windows' },
+        { id: 'Liberation Sans Narrow',  label: 'Arial Narrow (Liberation Sans Narrow)', group: 'windows' },
+        { id: 'Comic Neue',              label: 'Comic Neue (Comic Sans)',        group: 'windows' },
+        { id: null,                      label: '── Open Source Alternatives ──', group: 'header' },
+        { id: 'DejaVu Sans',             label: 'DejaVu Sans Bold',              group: 'open' },
+        { id: 'DejaVu Serif',            label: 'DejaVu Serif Bold',             group: 'open' },
+    ];
+
+    // CSS approximations of each subtitle style for the live overlay
+    const OVERLAY_STYLES = {
+        classic:   { font:'900 1em "Montserrat Black","Arial Black",sans-serif',  color:'#fff', outline:'#000', op:1, bg:'none',           hi:['#ff0','#ffa500','#ff1493','#0f0','#f0f','#00bfff'], chunks:4 },
+        bold:      { font:'900 1em "Montserrat Black","Arial Black",sans-serif',  color:'#0ff', outline:'#000', op:1, bg:'rgba(0,0,0,.9)',  hi:['#0ff'], chunks:3 },
+        explosive: { font:'900 1em "Anton","Arial Narrow",sans-serif',            color:'#fff', outline:'#000', op:1, bg:'rgba(0,0,0,.9)',  hi:['#fff'], chunks:2, upper:true },
+        bounce:    { font:'700 1em "Poppins Bold","Arial Black",sans-serif',      color:'#fff', outline:'#000', op:1, bg:'rgba(0,0,0,.7)',  hi:['#fff'], chunks:3 },
+        pulse:     { font:'900 1em "Poppins Black","Arial Black",sans-serif',     color:'#fff', outline:'#ff1493', op:1, bg:'rgba(0,0,0,.6)', hi:['#ff0','#ffa500','#ff1493','#0f0','#f0f','#00bfff'], chunks:3 },
+        clean:     { font:'700 1em "Montserrat Bold","Arial",sans-serif',         color:'#f5f5f5', outline:'#333', op:1, bg:'rgba(0,0,0,.35)', hi:['#e8e8e8'], chunks:4 },
+        gold:      { font:'900 1em "Montserrat Black","Arial Black",sans-serif',  color:'#fffacd', outline:'#000', op:1, bg:'rgba(0,0,0,.5)', hi:['#ffd700'], chunks:3, ls:'1px' },
+        electric:  { font:'900 1em "Anton","Arial Narrow",sans-serif',            color:'#0ff', outline:'#000', op:1, bg:'rgba(0,0,0,.9)',  hi:['#0ff'], chunks:2, upper:true },
+        neon:      { font:'900 1em "Montserrat Black","Arial Black",sans-serif',  color:'#ff0', outline:'#0ff', op:1, bg:'rgba(0,0,0,.65)', hi:['#ff0','#f0f','#0f0','#ff4500','#ff69b4'], chunks:3 },
+        cinematic: { font:'700 1em "Montserrat Bold","Arial",sans-serif',         color:'#fff', outline:'none', op:0, bg:'rgba(0,0,0,.88)', hi:['#fff'], chunks:5, ls:'1px' },
+        shadow:    { font:'900 1em "Montserrat Black","Arial Black",sans-serif',  color:'#fff', outline:'none', op:0, bg:'none', ts:'0 2px 8px rgba(0,0,0,.9)', hi:['#ff0'], chunks:3 },
+        outline:   { font:'900 1em "Barlow Condensed Black","Arial Narrow",sans-serif', color:'#fff', outline:'#000', op:2, bg:'none',            hi:['#ffcf80'], chunks:3 },
+        gradient:  { font:'900 1em "Montserrat Black","Arial Black",sans-serif',  color:'#fff', outline:'#0045ff', op:1, bg:'rgba(0,0,0,.5)', hi:['#ffcf00','#ff8000','#ff0','#80ff80','#00ff80'], chunks:3 },
+        fire:      { font:'900 1em "Oswald Bold","Arial Narrow",sans-serif',      color:'#fff', outline:'#0045ff', op:1, bg:'rgba(0,0,0,.9)', hi:['#f00','#ff4500','#ff8000','#ffcf00','#ff0'], chunks:2, upper:true },
+        wave:      { font:'700 1em "Poppins Bold","Arial Black",sans-serif',      color:'#fff', outline:'#ff69b4', op:1, bg:'rgba(0,0,0,.55)', hi:['#0ff','#f8f','#0f0','#f0f','#ff0'], chunks:4 },
+        karaoke:   { font:'900 1em "Montserrat Black","Arial Black",sans-serif',  color:'#fff', outline:'#000', op:1, bg:'none',            hi:['#ff0'], chunks:4 },
+        stark:     { font:'900 1em "Montserrat Black","Arial Black",sans-serif',  color:'#fff', outline:'none', op:0, bg:'rgba(0,0,0,.97)', hi:['#ff69b4'], chunks:3 },
+        glitch:    { font:'900 1em "Oswald Bold","Arial Narrow",sans-serif',      color:'#fff', outline:'none', op:0, bg:'rgba(0,0,0,.9)', hi:['#f00','#0ff'], chunks:3, upper:true },
+        spotlight: { font:'900 1em "Bebas Neue","Impact",sans-serif',             color:'#fff', outline:'#000', op:1, bg:'rgba(0,0,0,.88)', hi:['#fff'], chunks:1, upper:true },
+        duo:       { font:'900 1em "Archivo Black","Arial Black",sans-serif',     color:'#fff', outline:'#000', op:1, bg:'rgba(0,0,0,.88)', hi:['#ff69b4'], chunks:2 },
+        subtitle:  { font:'700 1em "Oswald Bold","Arial",sans-serif',             color:'#fff', outline:'#000', op:1, bg:'rgba(0,0,0,.85)', hi:['#e8f4ff'], chunks:6, ls:'0.5px' },
+        whip:      { font:'700 1em "Rajdhani Bold","Arial Black",sans-serif',     color:'#fff', outline:'#000', op:1, bg:'rgba(0,0,0,.9)',  hi:['#ff1493'], chunks:3 },
+    };
+
+    // Word animation definitions (entry = fires on chunk render, active = loops on highlighted word)
+    const WORD_ANIMATIONS = {
+        none:       null,
+        popIn:      { label:'Pop In',     entry:'wordPopIn',     dur:'.3s',  easing:'cubic-bezier(.34,1.56,.64,1)', stagger:.06 },
+        fadeIn:     { label:'Fade In',    entry:'wordFadeIn',    dur:'.35s', easing:'ease',                         stagger:.07 },
+        slideUp:    { label:'Slide Up',   entry:'wordSlideUp',   dur:'.3s',  easing:'ease',                         stagger:.06 },
+        slideDown:  { label:'Slide Down', entry:'wordSlideDown', dur:'.3s',  easing:'ease',                         stagger:.06 },
+        flip:       { label:'Flip In',    entry:'wordFlip',      dur:'.4s',  easing:'ease',                         stagger:.08 },
+        typewriter: { label:'Typewriter', entry:'wordTypewrite', dur:'.12s', easing:'ease',                         stagger:.22 },
+        wave:       { label:'Wave',       active:'wordWave',     activeDur:'.7s'  },
+        zoom:       { label:'Zoom',       active:'wordZoom',     activeDur:'.55s' },
+        bounce:     { label:'Bounce',     active:'wordBounce',   activeDur:'.6s'  },
+        shake:      { label:'Shake',      active:'wordShake',    activeDur:'.35s' },
+        glow:       { label:'Glow',       active:'wordGlow',     activeDur:'.8s'  },
+    };
+    const ANIM_ORDER = ['none','popIn','fadeIn','slideUp','slideDown','flip','typewriter','wave','zoom','bounce','shake','glow'];
+
+    // Style picker metadata
+    const STYLE_LIST = [
+        { sep: 'Animated Highlight' },
+        { id:'classic', label:'Classic' }, { id:'bold', label:'Bold' }, { id:'pulse', label:'Pulse' },
+        { id:'neon', label:'Neon' }, { id:'wave', label:'Wave' }, { id:'gradient', label:'Gradient' },
+        { id:'karaoke', label:'Karaoke' }, { id:'whip', label:'Whip' },
+        { sep: 'High Impact' },
+        { id:'explosive', label:'Impact' }, { id:'electric', label:'Electric' }, { id:'fire', label:'Fire' },
+        { id:'bounce', label:'Bounce' }, { id:'stark', label:'Stark' }, { id:'glitch', label:'Glitch' },
+        { id:'spotlight', label:'Spotlight' }, { id:'duo', label:'Duo' },
+        { sep: 'Clean & Cinematic' },
+        { id:'clean', label:'Clean' }, { id:'cinematic', label:'Cinematic' },
+        { id:'outline', label:'Outline' }, { id:'shadow', label:'Shadow' },
+        { id:'gold', label:'Gold' }, { id:'subtitle', label:'Subtitle' },
+    ];
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+        setupModeRadios();
+        setupEventListeners();
+        initStylePreferences();
+        initKeepAwakePreference();
+        setupWakeLockLifecycle();
+        loadClips();
+        startLogPolling();
+    });
+
+    function storageGet(key) {
+        try {
+            return window.localStorage.getItem(key);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function storageSet(key, value) {
+        try {
+            if (value === undefined || value === null || value === '') {
+                window.localStorage.removeItem(key);
+            } else {
+                window.localStorage.setItem(key, String(value));
+            }
+        } catch (_) {}
+    }
+
+    function getUploadFingerprint(file) {
+        return [file?.name || '', file?.size || 0, file?.lastModified || 0].join(':');
+    }
+
+    function readStoredUploadSession() {
+        const raw = storageGet(UPLOAD_SESSION_STORAGE_KEY);
+        if (!raw) return null;
+
+        try {
+            return JSON.parse(raw);
+        } catch (_) {
+            storageSet(UPLOAD_SESSION_STORAGE_KEY, '');
+            return null;
+        }
+    }
+
+    function writeStoredUploadSession(session) {
+        if (!session) {
+            storageSet(UPLOAD_SESSION_STORAGE_KEY, '');
+            return;
+        }
+
+        try {
+            window.localStorage.setItem(UPLOAD_SESSION_STORAGE_KEY, JSON.stringify(session));
+        } catch (_) {}
+    }
+
+    function clearStoredUploadSession(fingerprint = null) {
+        const session = readStoredUploadSession();
+        if (!session) return;
+        if (!fingerprint || session.fingerprint === fingerprint) {
+            storageSet(UPLOAD_SESSION_STORAGE_KEY, '');
+        }
+    }
+
+    function formatSize(bytes) {
+        if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let value = bytes;
+        let unit = 0;
+        while (value >= 1024 && unit < units.length - 1) {
+            value /= 1024;
+            unit += 1;
+        }
+        const precision = value >= 100 || unit === 0 ? 0 : 1;
+        return `${value.toFixed(precision)} ${units[unit]}`;
+    }
+
+    function buildUploadSettings() {
+        const segment = getSegmentWindow();
+        return {
+            mode: document.querySelector('input[name="mode"]:checked').value,
+            upscale: document.getElementById('upscale').checked,
+            subtitleStyle: document.getElementById('subtitleStyle').value,
+            maxDuration: document.querySelector('input[name="maxDuration"]:checked')?.value || '180',
+            maxClips: document.querySelector('input[name="maxClips"]:checked')?.value || '30',
+            startTime: segment.startTime,
+            endTime: segment.endTime
+        };
+    }
+
+    async function initResumableUploadSession(file, settings) {
+        const fingerprint = getUploadFingerprint(file);
+        const stored = readStoredUploadSession();
+        const body = {
+            ...settings,
+            fileName: file.name,
+            fileSize: file.size,
+            mimeType: file.type || '',
+            lastModified: file.lastModified || 0,
+            fingerprint
+        };
+
+        if (stored && stored.fingerprint === fingerprint && stored.sessionId) {
+            body.sessionId = stored.sessionId;
+        }
+
+        const res = await fetch('/api/upload-sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new Error(data.error || 'Could not initialize resumable upload');
+        }
+
+        const session = {
+            sessionId: data.sessionId,
+            safeName: data.safeName,
+            totalSize: data.totalSize,
+            receivedBytes: data.receivedBytes || 0,
+            chunkSize: data.chunkSize || RESUMABLE_CHUNK_SIZE,
+            status: data.status || 'uploading',
+            fingerprint,
+            fileName: file.name,
+            fileSize: file.size,
+            lastModified: file.lastModified || 0
+        };
+        writeStoredUploadSession(session);
+        return session;
+    }
+
+    async function getResumableUploadStatus(sessionId) {
+        const res = await fetch(`/api/upload-sessions/${encodeURIComponent(sessionId)}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new Error(data.error || 'Could not load resumable upload status');
+        }
+        return data;
+    }
+
+    async function finalizeResumableUploadSession(sessionId) {
+        const res = await fetch(`/api/upload-sessions/${encodeURIComponent(sessionId)}/complete`, {
+            method: 'POST'
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new Error(data.error || 'Could not finalize upload');
+        }
+        return data;
+    }
+
+    function uploadChunkWithProgress(sessionId, chunkBlob, offset, totalBytes, onProgress) {
+        return new Promise((resolve, reject) => {
+            const formData = new FormData();
+            formData.append('chunk', chunkBlob, 'chunk.bin');
+            formData.append('offset', String(offset));
+            formData.append('chunkSize', String(chunkBlob.size));
+
+            const xhr = new XMLHttpRequest();
+            xhr.timeout = 5 * 60 * 1000;
+
+            xhr.upload.addEventListener('progress', e => {
+                if (!e.lengthComputable || typeof onProgress !== 'function') return;
+                onProgress(Math.min(offset + e.loaded, totalBytes), totalBytes);
+            });
+
+            xhr.addEventListener('load', () => {
+                const data = (() => {
+                    try { return JSON.parse(xhr.responseText || '{}'); } catch (_) { return {}; }
+                })();
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(data);
+                    return;
+                }
+                const error = new Error(data.error || xhr.statusText || 'Upload chunk failed');
+                error.status = xhr.status;
+                error.payload = data;
+                reject(error);
+            });
+
+            xhr.addEventListener('error', () => reject(new Error('Network error while uploading chunk')));
+            xhr.addEventListener('timeout', () => reject(new Error('Upload chunk timed out')));
+            xhr.addEventListener('abort', () => {
+                const error = new Error('Upload chunk aborted');
+                error.aborted = true;
+                reject(error);
+            });
+
+            xhr.open('POST', `/api/upload-sessions/${encodeURIComponent(sessionId)}/chunk`);
+            xhr.send(formData);
+        });
+    }
+
+    function delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function waitForVisibleTab() {
+        if (document.visibilityState === 'visible') return Promise.resolve();
+
+        return new Promise(resolve => {
+            const onVisible = () => {
+                if (document.visibilityState !== 'visible') return;
+                document.removeEventListener('visibilitychange', onVisible);
+                resolve();
+            };
+            document.addEventListener('visibilitychange', onVisible);
+        });
+    }
+
+    function supportsScreenWakeLock() {
+        return Boolean(navigator.wakeLock && typeof navigator.wakeLock.request === 'function');
+    }
+
+    function getKeepAwakeEnabled() {
+        const checkbox = document.getElementById('keepAwake');
+        return checkbox ? checkbox.checked : true;
+    }
+
+    function setWakeLockStatus(message = '', tone = 'muted') {
+        const el = document.getElementById('wakeLockStatus');
+        if (!el) return;
+
+        if (!message) {
+            el.textContent = '';
+            el.className = 'hidden';
+            return;
+        }
+
+        const toneClass = {
+            muted: 'text-gray-500',
+            ok: 'text-emerald-300',
+            warn: 'text-amber-300'
+        }[tone] || 'text-gray-500';
+
+        el.textContent = message;
+        el.className = `text-[11px] mt-1 ${toneClass}`;
+    }
+
+    async function requestUploadWakeLock() {
+        if (!uploadWakeLockWanted || !getKeepAwakeEnabled()) return false;
+
+        if (!supportsScreenWakeLock()) {
+            setWakeLockStatus('This browser cannot force the screen awake. Keep the phone unlocked until the status changes to Processing.', 'warn');
+            return false;
+        }
+
+        if (uploadWakeLockSentinel) {
+            setWakeLockStatus('Screen will stay awake until the upload finishes sending.', 'ok');
+            return true;
+        }
+
+        try {
+            uploadWakeLockSentinel = await navigator.wakeLock.request('screen');
+            uploadWakeLockSentinel.addEventListener('release', () => {
+                uploadWakeLockSentinel = null;
+                if (isUploadingFile && uploadWakeLockWanted && getKeepAwakeEnabled() && document.visibilityState === 'visible') {
+                    requestUploadWakeLock();
+                    return;
+                }
+                if (!isUploadingFile) {
+                    setWakeLockStatus(
+                        getKeepAwakeEnabled()
+                            ? (supportsScreenWakeLock()
+                                ? 'Keep screen awake is ready for the next upload.'
+                                : 'This browser may still sleep during uploads.')
+                            : 'Keep screen awake is off.',
+                        getKeepAwakeEnabled() && supportsScreenWakeLock() ? 'muted' : 'warn'
+                    );
+                }
+            }, { once: true });
+
+            setWakeLockStatus('Screen will stay awake until the upload finishes sending.', 'ok');
+            return true;
+        } catch (err) {
+            console.warn('Wake lock request failed:', err);
+            setWakeLockStatus(
+                document.visibilityState === 'visible'
+                    ? 'Could not enable keep-awake. Keep the phone unlocked until the status changes to Processing.'
+                    : 'Bring this page back to the foreground to keep the screen awake during upload.',
+                'warn'
+            );
+            return false;
+        }
+    }
+
+    async function releaseUploadWakeLock() {
+        const sentinel = uploadWakeLockSentinel;
+        uploadWakeLockSentinel = null;
+
+        if (sentinel) {
+            try {
+                await sentinel.release();
+            } catch (_) {}
+        }
+
+        if (getKeepAwakeEnabled()) {
+            setWakeLockStatus(
+                supportsScreenWakeLock()
+                    ? 'Keep screen awake is ready for the next upload.'
+                    : 'This browser may still sleep during uploads.',
+                supportsScreenWakeLock() ? 'muted' : 'warn'
+            );
+        } else {
+            setWakeLockStatus('Keep screen awake is off.', 'warn');
+        }
+    }
+
+    function initKeepAwakePreference() {
+        const checkbox = document.getElementById('keepAwake');
+        if (!checkbox) return;
+
+        checkbox.checked = storageGet(KEEP_AWAKE_STORAGE_KEY) !== '0';
+        storageSet(KEEP_AWAKE_STORAGE_KEY, checkbox.checked ? '1' : '0');
+
+        setWakeLockStatus(
+            checkbox.checked
+                ? (supportsScreenWakeLock()
+                    ? 'Keep screen awake is ready for the next upload.'
+                    : 'This browser may still sleep during uploads.')
+                : 'Keep screen awake is off.',
+            checkbox.checked && supportsScreenWakeLock() ? 'muted' : 'warn'
+        );
+
+        checkbox.addEventListener('change', async () => {
+            storageSet(KEEP_AWAKE_STORAGE_KEY, checkbox.checked ? '1' : '0');
+            if (!checkbox.checked) {
+                uploadWakeLockWanted = false;
+                await releaseUploadWakeLock();
+                setWakeLockStatus('Keep screen awake is off. If the phone sleeps, uploads may pause.', 'warn');
+                return;
+            }
+
+            if (isUploadingFile) {
+                uploadWakeLockWanted = true;
+                await requestUploadWakeLock();
+            } else {
+                setWakeLockStatus(
+                    supportsScreenWakeLock()
+                        ? 'Keep screen awake is ready for the next upload.'
+                        : 'This browser may still sleep during uploads.',
+                    supportsScreenWakeLock() ? 'muted' : 'warn'
+                );
+            }
+        });
+    }
+
+    function setupWakeLockLifecycle() {
+        document.addEventListener('visibilitychange', () => {
+            if (!isUploadingFile || !uploadWakeLockWanted || !getKeepAwakeEnabled()) return;
+            if (document.visibilityState === 'visible') {
+                requestUploadWakeLock();
+            } else {
+                setWakeLockStatus('This tab is hidden. Return before the phone sleeps or the upload may pause.', 'warn');
+            }
+        });
+
+        window.addEventListener('beforeunload', (event) => {
+            if (!isUploadingFile) return;
+            event.preventDefault();
+            event.returnValue = '';
+        });
+
+        window.addEventListener('pagehide', () => {
+            releaseUploadWakeLock();
+        });
+    }
+
+    function isKnownOverlayStyle(styleId) {
+        return typeof styleId === 'string' && Object.prototype.hasOwnProperty.call(OVERLAY_STYLES, styleId);
+    }
+
+    function isKnownWordAnimation(animationId) {
+        return typeof animationId === 'string' && Object.prototype.hasOwnProperty.call(WORD_ANIMATIONS, animationId);
+    }
+
+    function uploadSelectSupportsStyle(styleId) {
+        const select = document.getElementById('subtitleStyle');
+        if (!select || typeof styleId !== 'string') return false;
+        return Array.from(select.options).some(option => option.value === styleId);
+    }
+
+    function rememberUploadStyle(styleId) {
+        if (uploadSelectSupportsStyle(styleId)) {
+            storageSet(UPLOAD_STYLE_STORAGE_KEY, styleId);
+        }
+    }
+
+    function rememberEditorStyle(styleId) {
+        if (isKnownOverlayStyle(styleId)) {
+            storageSet(EDITOR_STYLE_STORAGE_KEY, styleId);
+        }
+    }
+
+    function rememberEditorAnimation(animationId) {
+        if (isKnownWordAnimation(animationId)) {
+            storageSet(EDITOR_ANIMATION_STORAGE_KEY, animationId);
+        }
+    }
+
+    function getPreferredUploadStyle() {
+        const select = document.getElementById('subtitleStyle');
+        if (select && uploadSelectSupportsStyle(select.value)) return select.value;
+
+        const stored = storageGet(UPLOAD_STYLE_STORAGE_KEY);
+        return uploadSelectSupportsStyle(stored) ? stored : null;
+    }
+
+    function clipHasSavedSubtitleTweaks(meta = {}) {
+        return meta.subtitle_x != null ||
+            meta.subtitle_y != null ||
+            meta.subtitle_width != null ||
+            meta.subtitle_fontsize != null ||
+            Boolean(meta.font) ||
+            (isKnownWordAnimation(meta.animation) && meta.animation !== 'none') ||
+            (Number.parseFloat(meta.video_zoom) || 1) > 1.01 ||
+            Math.abs(Number.parseFloat(meta.video_pan_x) || 0) > 0.0001 ||
+            Math.abs(Number.parseFloat(meta.video_pan_y) || 0) > 0.0001;
+    }
+
+    function getPreferredEditorAnimation() {
+        const stored = storageGet(EDITOR_ANIMATION_STORAGE_KEY);
+        return isKnownWordAnimation(stored) ? stored : 'none';
+    }
+
+    function resolveInitialEditorStyle(meta = {}) {
+        const metaStyle = isKnownOverlayStyle(meta.style) ? meta.style : 'classic';
+        if (clipHasSavedSubtitleTweaks(meta)) return metaStyle;
+
+        const storedEditorStyle = storageGet(EDITOR_STYLE_STORAGE_KEY);
+        if (isKnownOverlayStyle(storedEditorStyle) && metaStyle === 'classic') {
+            return storedEditorStyle;
+        }
+
+        const preferredUploadStyle = getPreferredUploadStyle();
+        if (isKnownOverlayStyle(preferredUploadStyle) && metaStyle === 'classic') {
+            return preferredUploadStyle;
+        }
+
+        return metaStyle;
+    }
+
+    function initStylePreferences() {
+        const select = document.getElementById('subtitleStyle');
+        if (!select) return;
+
+        const stored = storageGet(UPLOAD_STYLE_STORAGE_KEY);
+        if (uploadSelectSupportsStyle(stored)) {
+            select.value = stored;
+        }
+
+        rememberUploadStyle(select.value);
+        select.addEventListener('change', () => rememberUploadStyle(select.value));
+    }
+
+    function startServerDownload(url, filename) {
+        const downloadUrl = url + (url.includes('?') ? '&' : '?') + 'dl=' + Date.now();
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent || '');
+
+        if (isIOS) {
+            window.location.assign(downloadUrl);
+            return;
+        }
+
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = filename || '';
+        link.rel = 'noopener';
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    function setupModeRadios() {
+        document.querySelectorAll('input[name="mode"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                document.querySelectorAll('.mode-label').forEach(lbl => {
+                    const r = lbl.querySelector('input');
+                    if (r.checked) {
+                        lbl.classList.replace('bg-gray-700/20','bg-purple-500/20');
+                        lbl.classList.replace('border-gray-600','border-purple-500');
+                        lbl.classList.replace('text-gray-400','text-white');
+                    } else {
+                        lbl.classList.replace('bg-purple-500/20','bg-gray-700/20');
+                        lbl.classList.replace('border-purple-500','border-gray-600');
+                        lbl.classList.replace('text-white','text-gray-400');
+                    }
+                });
+            });
+        });
+    }
+
+    function setupEventListeners() {
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('videoInput');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        ['dragenter','dragover'].forEach(ev => {
+            dropZone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dropZone.classList.add('dragging'); });
+        });
+        ['dragleave','drop'].forEach(ev => {
+            dropZone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dropZone.classList.remove('dragging'); });
+        });
+        dropZone.addEventListener('drop', e => { if (e.dataTransfer.files[0]) handleUpload(e.dataTransfer.files[0]); });
+        fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleUpload(fileInput.files[0]); });
+        document.getElementById('urlBtn').addEventListener('click', handleVideoUrlDownload);
+        document.getElementById('videoUrl').addEventListener('keydown', e => {
+            if (e.key === 'Enter') handleVideoUrlDownload();
+        });
+
+        const segmentPreset = document.getElementById('segmentPreset');
+        const customRow = document.getElementById('customSegmentRow');
+        segmentPreset.addEventListener('change', () => {
+            customRow.classList.toggle('hidden', segmentPreset.value !== 'custom');
+        });
+
+        const subtitleTextBox = document.getElementById('subtitleTextBox');
+        subtitleTextBox.addEventListener('input', () => {
+            syncTextBoxToWords(subtitleTextBox.value);
+            updateWordCount(subtitleTextBox.value);
+            renderSubtitleEditor(subtitleEditorWords, currentOverlayStyle, false);
+        });
+
+        document.getElementById('fontSizeSlider').addEventListener('input', function() {
+            overlayFontSize = parseInt(this.value);
+            document.getElementById('fontSizeVal').textContent = overlayFontSize;
+            applyOverlayStyle(currentOverlayStyle);
+        });
+
+        document.getElementById('videoZoomSlider').addEventListener('input', function() {
+            videoZoom = parseInt(this.value) / 100;
+            applyVideoTransform();
+        });
+
+        const pc = document.getElementById('previewContainer');
+        pc.addEventListener('wheel', e => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+            videoZoom = Math.round(Math.max(1.0, Math.min(4.0, videoZoom + delta)) * 10) / 10;
+            applyVideoTransform();
+        }, { passive: false });
+
+        pc.addEventListener('mousedown', e => {
+            if (_drag.active) return;
+            const overlay = document.getElementById('subtitleOverlay');
+            if (overlay && overlay.contains(e.target)) return;
+            if (videoZoom <= 1.01) return;
+            _vidPan.active = true;
+            _vidPan.sx = e.clientX; _vidPan.sy = e.clientY;
+            _vidPan.spx = videoPanXPx; _vidPan.spy = videoPanYPx;
+            e.preventDefault();
+        });
+    }
+
+    // ── Upload ────────────────────────────────────────────────────────────────
+    function getSegmentWindow() {
+        const preset = document.getElementById('segmentPreset').value;
+        if (preset === 'custom') {
+            const start = document.getElementById('startTime').value;
+            const end   = document.getElementById('endTime').value;
+            return { startTime: start, endTime: end };
+        }
+        const presets = {
+            'full':       { startTime: '',       endTime: '' },
+            // from start
+            'first60':    { startTime: '0',      endTime: '60' },
+            'first180':   { startTime: '0',      endTime: '180' },
+            'first300':   { startTime: '0',      endTime: '300' },
+            'first600':   { startTime: '0',      endTime: '600' },
+            'first1800':  { startTime: '0',      endTime: '1800' },
+            // middle segments (minute-based)
+            'seg_1_3':    { startTime: '60',     endTime: '180' },
+            'seg_3_6':    { startTime: '180',    endTime: '360' },
+            'seg_6_9':    { startTime: '360',    endTime: '540' },
+            'seg_9_12':   { startTime: '540',    endTime: '720' },
+            'seg_12_17':  { startTime: '720',    endTime: '1020' },
+            // from end (backend clamps via special sentinel value)
+            'last60':     { startTime: '999998', endTime: '60' },   // sentinel: last N sec
+            'last180':    { startTime: '999999', endTime: '' },      // legacy sentinel
+            'last300':    { startTime: '999997', endTime: '300' },
+        };
+        return presets[preset] || { startTime: '', endTime: '' };
+    }
+
+    function detectPlatform(url) {
+        try {
+            const h = new URL(url).hostname.replace(/^www\./, '');
+            if (/youtube\.com|youtu\.be/.test(h))   return 'YouTube';
+            if (/rumble\.com/.test(h))               return 'Rumble';
+            if (/twitch\.tv/.test(h))                return 'Twitch';
+            if (/facebook\.com|fb\.watch/.test(h))   return 'Facebook';
+            if (/instagram\.com/.test(h))            return 'Instagram';
+            if (/tiktok\.com/.test(h))               return 'TikTok';
+            if (/twitter\.com|x\.com/.test(h))       return 'X / Twitter';
+            if (/vimeo\.com/.test(h))                return 'Vimeo';
+            if (/dailymotion\.com/.test(h))          return 'Dailymotion';
+        } catch {}
+        return 'Video';
+    }
+
+    async function handleVideoUrlDownload() {
+        const url = document.getElementById('videoUrl').value.trim();
+        if (!url) { alert('Please paste a video URL first.'); return; }
+
+        const platform = detectPlatform(url);
+        const btn = document.getElementById('urlBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        setProcessing(true);
+        updateStatus(`Downloading from ${platform}…`, 0, `The server is fetching the source video directly from ${platform}.`);
+
+        try {
+            const segment = getSegmentWindow();
+            const res = await fetch('/api/process-url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url,
+                    mode: document.querySelector('input[name="mode"]:checked').value,
+                    upscale: document.getElementById('upscale').checked,
+                    subtitleStyle: document.getElementById('subtitleStyle').value,
+                    maxDuration: document.querySelector('input[name="maxDuration"]:checked')?.value,
+                    maxClips: document.querySelector('input[name="maxClips"]:checked')?.value || '30',
+                    startTime: segment.startTime,
+                    endTime: segment.endTime
+                })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                updateStatus('Processing…', 100, 'Download complete. AI clip analysis is running on the server.');
+                document.getElementById('videoUrl').value = '';
+                document.getElementById('processingStatus').textContent = 'Processing';
+            } else {
+                throw new Error(data.error || 'Server Error');
+            }
+        } catch (e) {
+            alert('Error: ' + e.message);
+            updateStatus('Failed', 0, 'The server could not start the remote download.');
+            setProcessing(false);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-download"></i>';
+        }
+    }
+
+    async function handleUpload(file) {
+        const progressContainer = document.getElementById('uploadProgressContainer');
+        const progressBar      = document.getElementById('progressBar');
+        const percentText      = document.getElementById('uploadPercent');
+        const statusText       = document.getElementById('statusText');
+        const speedText        = document.getElementById('uploadSpeed');
+        const phaseHint        = document.getElementById('uploadPhaseHint');
+        const processingStatus = document.getElementById('processingStatus');
+        const fingerprint      = getUploadFingerprint(file);
+        const settings         = buildUploadSettings();
+        let session            = null;
+        let lastLoaded         = 0;
+        let lastTime           = Date.now();
+
+        const updateProgressUi = (uploadedBytes, totalBytes, state = 'uploading') => {
+            const safeUploaded = Math.max(0, Math.min(uploadedBytes, totalBytes));
+            const pct = totalBytes > 0 ? Math.round((safeUploaded / totalBytes) * 100) : 0;
+            progressBar.style.width = pct + '%';
+            percentText.textContent = pct + '%';
+
+            if (state === 'resuming') {
+                statusText.textContent = 'Resuming upload...';
+                statusText.className   = 'text-amber-300 font-bold processing-animation';
+                phaseHint.textContent  = 'This upload is continuing from the last confirmed byte on the server.';
+            } else if (pct >= 100 || state === 'finalizing') {
+                statusText.textContent = 'Finalizing upload...';
+                statusText.className   = 'text-amber-300 font-bold processing-animation';
+                phaseHint.textContent  = 'All chunks are on the server. Finalizing the file and starting clip processing now.';
+                processingStatus.textContent = 'Finalizing';
+            } else if (state === 'retrying') {
+                statusText.textContent = 'Retrying upload...';
+                statusText.className   = 'text-amber-300 font-bold processing-animation';
+                phaseHint.textContent  = 'The last chunk did not confirm cleanly. Resuming from the server’s last saved byte.';
+            } else {
+                statusText.textContent = 'Uploading...';
+                statusText.className   = 'text-purple-300 font-bold processing-animation';
+                phaseHint.textContent  = 'Uploading sends the file to the server first. On phones, keep this page visible until the status changes to Processing.';
+            }
+
+            const now = Date.now();
+            if (now - lastTime > 500) {
+                const delta = safeUploaded - lastLoaded;
+                const elapsedSeconds = (now - lastTime) / 1000;
+                const bytesPerSecond = elapsedSeconds > 0 ? delta / elapsedSeconds : 0;
+                if (bytesPerSecond > 0 && safeUploaded < totalBytes) {
+                    const mb = (bytesPerSecond / 1048576).toFixed(2);
+                    const remainingSeconds = (totalBytes - safeUploaded) / bytesPerSecond;
+                    speedText.textContent = `⚡ ${mb} MB/s • ⏱️ ${Math.floor(remainingSeconds / 60)}m ${Math.floor(remainingSeconds % 60)}s remaining`;
+                } else if (safeUploaded < totalBytes) {
+                    speedText.textContent = `Uploaded ${formatSize(safeUploaded)} of ${formatSize(totalBytes)}`;
+                }
+                lastLoaded = safeUploaded;
+                lastTime = now;
+            }
+        };
+
+        progressContainer.classList.remove('hidden');
+        progressBar.style.width = '0%';
+        percentText.textContent = '0%';
+        statusText.textContent  = 'Uploading...';
+        statusText.className    = 'text-purple-300 font-bold processing-animation';
+        speedText.textContent   = 'Preparing upload...';
+        phaseHint.textContent   = 'Uploading sends the file to the server first. On phones, keep this page visible until the status changes to Processing.';
+        setProcessing(true);
+        processingStatus.textContent = 'Uploading';
+
+        isUploadingFile = true;
+        uploadWakeLockWanted = getKeepAwakeEnabled();
+        await requestUploadWakeLock();
+
+        try {
+            session = await initResumableUploadSession(file, settings);
+            let uploadedBytes = Math.min(session.receivedBytes || 0, file.size);
+            lastLoaded = uploadedBytes;
+            lastTime = Date.now();
+
+            if (uploadedBytes > 0) {
+                speedText.textContent = `Resuming from ${formatSize(uploadedBytes)} already saved on the server`;
+                updateProgressUi(uploadedBytes, file.size, 'resuming');
+            } else {
+                updateProgressUi(0, file.size, 'uploading');
+            }
+
+            while (uploadedBytes < file.size) {
+                if (document.visibilityState !== 'visible') {
+                    statusText.textContent = 'Upload Paused';
+                    statusText.className   = 'text-amber-300 font-bold processing-animation';
+                    speedText.textContent  = `⏸ Waiting to resume from ${formatSize(uploadedBytes)}`;
+                    phaseHint.textContent  = 'Bring this page back to the foreground to continue sending upload chunks.';
+                    processingStatus.textContent = 'Paused';
+                    await waitForVisibleTab();
+                    processingStatus.textContent = 'Uploading';
+                    await requestUploadWakeLock();
+                    lastLoaded = uploadedBytes;
+                    lastTime = Date.now();
+                }
+
+                const chunkSize = session.chunkSize || RESUMABLE_CHUNK_SIZE;
+                const chunkEnd = Math.min(uploadedBytes + chunkSize, file.size);
+                const chunk = file.slice(uploadedBytes, chunkEnd);
+                let chunkUploaded = false;
+                let attempt = 0;
+
+                while (!chunkUploaded) {
+                    try {
+                        const result = await uploadChunkWithProgress(
+                            session.sessionId,
+                            chunk,
+                            uploadedBytes,
+                            file.size,
+                            (loadedBytes, totalBytes) => updateProgressUi(loadedBytes, totalBytes, 'uploading')
+                        );
+
+                        uploadedBytes = Math.max(uploadedBytes, result.receivedBytes || chunkEnd);
+                        session.receivedBytes = uploadedBytes;
+                        session.status = result.complete ? 'uploaded' : 'uploading';
+                        writeStoredUploadSession({ ...session, receivedBytes: uploadedBytes, status: session.status });
+                        updateProgressUi(uploadedBytes, file.size, uploadedBytes < file.size ? 'uploading' : 'finalizing');
+                        chunkUploaded = true;
+                    } catch (err) {
+                        attempt += 1;
+                        let remoteStatus = null;
+
+                        try {
+                            remoteStatus = await getResumableUploadStatus(session.sessionId);
+                        } catch (_) {}
+
+                        if (remoteStatus && Number.isFinite(remoteStatus.receivedBytes)) {
+                            uploadedBytes = Math.min(remoteStatus.receivedBytes, file.size);
+                            session.receivedBytes = uploadedBytes;
+                            session.chunkSize = remoteStatus.chunkSize || session.chunkSize || RESUMABLE_CHUNK_SIZE;
+                            session.status = remoteStatus.status || session.status;
+                            writeStoredUploadSession({
+                                ...session,
+                                receivedBytes: uploadedBytes,
+                                chunkSize: session.chunkSize,
+                                status: session.status
+                            });
+                            updateProgressUi(uploadedBytes, file.size, uploadedBytes > 0 ? 'resuming' : 'uploading');
+                            if (uploadedBytes >= chunkEnd) {
+                                chunkUploaded = true;
+                                break;
+                            }
+                        }
+
+                        if (document.visibilityState !== 'visible') {
+                            statusText.textContent = 'Upload Paused';
+                            statusText.className   = 'text-amber-300 font-bold processing-animation';
+                            speedText.textContent  = `⏸ Waiting to resume from ${formatSize(uploadedBytes)}`;
+                            phaseHint.textContent  = 'The phone hid this page before the current chunk finished. Return here and the upload will continue.';
+                            processingStatus.textContent = 'Paused';
+                            await waitForVisibleTab();
+                            processingStatus.textContent = 'Uploading';
+                            await requestUploadWakeLock();
+                            lastLoaded = uploadedBytes;
+                            lastTime = Date.now();
+                            continue;
+                        }
+
+                        if (attempt < 4) {
+                            updateProgressUi(uploadedBytes, file.size, 'retrying');
+                            speedText.textContent = `Retry ${attempt}/3 from ${formatSize(uploadedBytes)}...`;
+                            await delay(1000 * attempt);
+                            continue;
+                        }
+
+                        const resumePoint = formatSize(uploadedBytes);
+                        throw new Error(`${err.message}. Resume is saved at ${resumePoint}.`);
+                    }
+                }
+            }
+
+            updateProgressUi(file.size, file.size, 'finalizing');
+            await finalizeResumableUploadSession(session.sessionId);
+            clearStoredUploadSession(fingerprint);
+            isUploadingFile = false;
+            uploadWakeLockWanted = false;
+            releaseUploadWakeLock();
+            statusText.textContent = 'Processing clips...';
+            statusText.className   = 'text-green-400 font-bold processing-animation';
+            speedText.textContent  = '✅ Upload complete. The server is analyzing and rendering clips now.';
+            phaseHint.textContent  = 'The file is on the server. AI clip extraction and rendering can take several minutes for longer videos.';
+            processingStatus.textContent = 'Processing';
+        } catch (e) {
+            let resumeBytes = session?.receivedBytes || 0;
+            if (session?.sessionId) {
+                try {
+                    const remoteStatus = await getResumableUploadStatus(session.sessionId);
+                    resumeBytes = Math.max(resumeBytes, remoteStatus.receivedBytes || 0);
+                    if (remoteStatus && Number.isFinite(remoteStatus.receivedBytes)) {
+                        writeStoredUploadSession({
+                            ...session,
+                            receivedBytes: remoteStatus.receivedBytes,
+                            chunkSize: remoteStatus.chunkSize || session.chunkSize || RESUMABLE_CHUNK_SIZE,
+                            status: remoteStatus.status || session.status
+                        });
+                    }
+                } catch (_) {}
+            }
+
+            isUploadingFile = false;
+            uploadWakeLockWanted = false;
+            releaseUploadWakeLock();
+            setProcessing(false);
+
+            if (resumeBytes > 0) {
+                statusText.textContent = 'Upload Paused';
+                statusText.className   = 'text-amber-300 font-bold processing-animation';
+                speedText.textContent  = `⏸ Resume saved at ${formatSize(resumeBytes)} of ${formatSize(file.size)}`;
+                phaseHint.textContent  = 'Select the same file again and the upload will continue from the last confirmed byte instead of restarting.';
+                processingStatus.textContent = 'Paused';
+            } else {
+                clearStoredUploadSession(fingerprint);
+                statusText.textContent = 'Upload Failed';
+                statusText.className   = 'text-red-500 font-bold';
+                speedText.textContent  = `❌ ${e.message}`;
+                phaseHint.textContent  = 'The upload could not start or continue.';
+                processingStatus.textContent = 'Error';
+            }
+            console.error('Upload error:', e);
+        } finally {
+            document.getElementById('videoInput').value = '';
+        }
+    }
+
+    function updateStatus(text, pct, hint = null) {
+        document.getElementById('uploadProgressContainer').classList.remove('hidden');
+        document.getElementById('progressBar').style.width = pct + '%';
+        document.getElementById('uploadPercent').textContent = pct + '%';
+        document.getElementById('statusText').textContent    = text;
+        if (hint !== null) {
+            document.getElementById('uploadPhaseHint').textContent = hint;
+        }
+    }
+
+    function setProcessing(active) {
+        isProcessing = active;
+        document.getElementById('liveIndicator').classList.toggle('hidden', !active);
+    }
+
+    // ── Log Polling ───────────────────────────────────────────────────────────
+    function startLogPolling() {
+        logPollingInterval = setInterval(pollLogs, 1000);
+    }
+
+    async function pollLogs() {
+        try {
+            const [logsRes, jobRes] = await Promise.all([
+                fetch('/api/logs'),
+                fetch('/api/job-status')
+            ]);
+            const logs = await logsRes.json();
+            const job = await jobRes.json();
+            const container = document.getElementById('logsContainer');
+
+            if (logs.length === 0) {
+                if (job.active || isProcessing) {
+                    setProcessing(true);
+                    document.getElementById('processingStatus').textContent = 'Processing';
+                    container.innerHTML = '<div class="text-gray-500 italic">Waiting for processing output...</div>';
+                } else {
+                    setProcessing(false);
+                }
+                return;
+            }
+
+            container.innerHTML = logs.map(log => {
+                let color = 'text-green-400';
+                if (log.includes('❌') || log.includes('Error') || log.includes('⚠️')) color = 'text-red-400';
+                else if (log.includes('✅')) color = 'text-emerald-400';
+                else if (log.includes('🎬') || log.includes('📊')) color = 'text-blue-400';
+                else if (log.includes('🚀')) color = 'text-purple-400';
+                return `<div class="log-line ${color}">${escapeHtml(log)}</div>`;
+            }).join('');
+            container.scrollTop = container.scrollHeight;
+
+            const lastLog = logs[logs.length - 1] || '';
+            const isDone  = lastLog.includes('✅ Done') || lastLog.includes('clips exported') || lastLog.includes('Re-render complete');
+            const isFail  = lastLog.includes('❌ No viral clips') || lastLog.includes('❌ Download Failed');
+
+            if (isDone || isFail) {
+                setProcessing(false);
+                document.getElementById('processingStatus').textContent = isDone ? 'Complete' : 'No clips';
+                // Load only new clips without disrupting existing playback
+                setTimeout(refreshClipList, 800);
+            } else if (job.active) {
+                setProcessing(true);
+                document.getElementById('processingStatus').textContent = 'Processing';
+            } else {
+                setProcessing(false);
+            }
+        } catch (e) {
+            console.error('Log poll error:', e);
+        }
+    }
+
+    function clearLogs() {
+        document.getElementById('logsContainer').innerHTML = '<div class="text-gray-500 italic">Logs cleared</div>';
+    }
+
+    async function copyLogs() {
+        const container = document.getElementById('logsContainer');
+        const text = Array.from(container.querySelectorAll('div'))
+            .map(node => node.textContent || '')
+            .join('\n')
+            .trim();
+
+        if (!text) {
+            alert('There are no logs to copy.');
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch (_) {
+            const selection = window.getSelection();
+            const range = document.createRange();
+            range.selectNodeContents(container);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.execCommand('copy');
+            selection.removeAllRanges();
+        }
+    }
+
+    // ── Clip Gallery ──────────────────────────────────────────────────────────
+    // Full reload (clears DOM — only call on manual refresh)
+    window.loadClips = async function() {
+        loadedClipNames.clear();
+        const grid = document.getElementById('clipsGrid');
+        grid.innerHTML = '';
+        await refreshClipList(true);
+    };
+
+    // Smart refresh — adds NEW clips without removing playing videos
+    async function refreshClipList(fullLoad = false) {
+        try {
+            // Only bust cache on manual full-load; auto-refresh can use the cached response
+            const url = fullLoad ? '/api/clips?t=' + Date.now() : '/api/clips';
+            const res = await fetch(url);
+            const clips = await res.json();
+
+            // Stats
+            document.getElementById('totalClips').textContent = clips.length;
+            if (clips.length > 0) {
+                const scores  = clips.map(c => parseFloat(c.score)).filter(s => !isNaN(s));
+                document.getElementById('avgScore').textContent = scores.length
+                    ? (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1) : '0.0';
+                document.getElementById('topScore').textContent = scores.length
+                    ? Math.max(...scores).toFixed(1) : '0.0';
+            }
+
+            const grid = document.getElementById('clipsGrid');
+
+            if (clips.length === 0) {
+                if (fullLoad) {
+                    grid.innerHTML = `<div class="col-span-full text-center py-12 text-gray-500 no-clips-placeholder">
+                        <i class="fas fa-video text-5xl mb-3 opacity-50"></i>
+                        <p>No clips yet. Upload a video to get started!</p></div>`;
+                }
+                return;
+            }
+
+            // Remove placeholder
+            grid.querySelector('.no-clips-placeholder')?.remove();
+
+            // Sort
+            let sorted = [...clips];
+            if (document.getElementById('autoSort').checked) {
+                sorted.sort((a,b) => parseFloat(b.score) - parseFloat(a.score));
+            }
+
+            sorted.forEach((clip, idx) => {
+                if (loadedClipNames.has(clip.name)) return; // already in DOM
+                loadedClipNames.add(clip.name);
+                addClipCard(clip, idx, grid);
+            });
+
+            // Remove stale cards (deleted clips)
+            for (const name of [...loadedClipNames]) {
+                if (!clips.find(c => c.name === name)) {
+                    document.querySelector(`[data-clip="${CSS.escape(name)}"]`)?.remove();
+                    loadedClipNames.delete(name);
+                }
+            }
+        } catch (e) {
+            console.error('Clip load error:', e);
+        }
+    }
+
+    function addClipCard(clip, idx, grid) {
+        const scoreValue = parseFloat(clip.score);
+        const scoreColor = scoreValue >= 10 ? 'from-pink-500 to-orange-500'
+                         : scoreValue >= 7.5 ? 'from-purple-500 to-pink-500'
+                         :                  'from-blue-500 to-purple-500';
+        const clipReasons = Array.isArray(clip.reasons) ? clip.reasons.slice(0, 3) : [];
+        const reasonHtml = clipReasons.length
+            ? `<p class="text-xs text-gray-400 mb-3 leading-relaxed">${clipReasons.map(r => escapeHtml(r)).join(' • ')}</p>`
+            : '';
+        const rankingHtml = clip.rankingVersion
+            ? `<div class="text-[10px] uppercase tracking-[0.18em] text-gray-500 mb-2">${escapeHtml(clip.rankingVersion.replace('_', ' '))}</div>`
+            : '';
+
+        const card = document.createElement('div');
+        card.className       = 'clip-card rounded-xl overflow-hidden shadow-lg flex flex-col';
+        card.dataset.clip    = clip.name;
+
+        const captionBtns = clip.hasSubtitleData
+            ? `<button onclick="openSubtitleEditor('${escapeAttr(clip.name)}')"
+                       class="col-span-2 mt-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 py-2 rounded-lg text-sm font-bold transition border border-indigo-500/30">
+                   <i class="fas fa-closed-captioning"></i> Edit Captions
+               </button>
+               <button onclick="quickBakeDownload('${escapeAttr(clip.name)}')"
+                       class="col-span-2 mt-1 bg-gradient-to-r from-purple-500/20 to-pink-500/20 hover:from-purple-500/30 hover:to-pink-500/30 text-purple-300 py-2 rounded-lg text-sm font-bold transition border border-purple-500/30">
+                   <i class="fas fa-download"></i> Download with Captions
+               </button>`
+            : '';
+
+        card.innerHTML = `
+            <div class="relative">
+                <video controls preload="none"
+                       class="w-full aspect-[9/16] bg-black object-cover"
+                       src="${clip.url}"></video>
+                ${idx < 3 ? `<div class="absolute top-2 left-2 bg-gradient-to-r ${scoreColor} text-white text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1">
+                    <i class="fas fa-trophy"></i> Top ${idx+1}</div>` : ''}
+            </div>
+            <div class="p-4 flex flex-col flex-1">
+                <div class="flex justify-between items-center mb-3">
+                    <span class="score-badge text-white text-sm px-3 py-1 rounded-full font-bold flex items-center gap-1">
+                        <i class="fas fa-fire"></i> ${isNaN(scoreValue) ? clip.score : scoreValue.toFixed(1)}
+                    </span>
+                    <span class="text-xs text-gray-400">#${idx+1}</span>
+                </div>
+                ${rankingHtml}
+                <p class="text-xs text-gray-500 font-mono break-all mb-3 flex-1">${clip.name}</p>
+                ${reasonHtml}
+                <div class="grid grid-cols-2 gap-2">
+                    <a href="${clip.url}" download class="bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white py-2 rounded-lg text-center text-sm font-bold transition">
+                        <i class="fas fa-download"></i>
+                    </a>
+                    <button onclick="deleteClip('${escapeAttr(clip.name)}')" class="bg-red-500/20 hover:bg-red-500/30 text-red-400 py-2 rounded-lg text-sm font-bold transition border border-red-500/30">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                    ${captionBtns}
+                </div>
+            </div>`;
+
+        grid.appendChild(card);
+        // Observe the video so metadata loads only when scrolled into view
+        const vid = card.querySelector('video');
+        if (vid) _videoObserver.observe(vid);
+    }
+
+    window.deleteClip = async function(name) {
+        if (!confirm('Delete this clip permanently?')) return;
+        try {
+            await fetch(`/api/clips/${encodeURIComponent(name)}`, { method: 'DELETE' });
+            document.querySelector(`[data-clip="${CSS.escape(name)}"]`)?.remove();
+            loadedClipNames.delete(name);
+            const remaining = document.querySelectorAll('[data-clip]').length;
+            document.getElementById('totalClips').textContent = remaining;
+            if (remaining === 0) {
+                document.getElementById('clipsGrid').innerHTML = `<div class="col-span-full text-center py-12 text-gray-500 no-clips-placeholder">
+                    <i class="fas fa-video text-5xl mb-3 opacity-50"></i><p>No clips yet.</p></div>`;
+            }
+        } catch { alert('Delete failed'); }
+    };
+
+    window.deleteAllClips = async function() {
+        if (!confirm('⚠️ Delete ALL clips? This cannot be undone!')) return;
+        try {
+            const res   = await fetch('/api/clips');
+            const clips = await res.json();
+            for (const clip of clips) {
+                await fetch(`/api/clips/${encodeURIComponent(clip.name)}`, { method: 'DELETE' });
+            }
+            loadedClipNames.clear();
+            loadClips();
+        } catch { alert('Failed to delete all clips'); }
+    };
+
+    // ── Caption Editor ─────────────────────────────────────────────────────────
+
+    function renderFontPicker() {
+        const sel = document.getElementById('fontPicker');
+        if (!sel) return;
+        sel.innerHTML = FONT_LIST.map(f => {
+            if (f.group === 'header') {
+                return `<option value="" disabled style="color:#6b7280;font-size:.7em;letter-spacing:.05em">${f.label}</option>`;
+            }
+            const selected = currentFont === f.id ? 'selected' : '';
+            const fontFamily = f.id ? `font-family:'${f.id}',sans-serif` : '';
+            return `<option value="${f.id || ''}" ${selected} style="${fontFamily}">${f.label}</option>`;
+        }).join('');
+        sel.onchange = () => {
+            const val = sel.value;
+            // Ignore clicks on header/separator rows
+            const picked = FONT_LIST.find(f => (f.id || '') === val);
+            if (picked && picked.group === 'header') { renderFontPicker(); return; }
+            currentFont = val || null;
+            applyOverlayStyle(currentOverlayStyle);
+            showNearestChunk(document.getElementById('previewVideo')?.currentTime || 0);
+        };
+    }
+
+    function renderAnimTags() {
+        const container = document.getElementById('animTags');
+        if (!container) return;
+        container.innerHTML = ANIM_ORDER.map(key => {
+            const def = WORD_ANIMATIONS[key];
+            const label = key === 'none' ? '— None' : (def ? def.label : key);
+            const active = currentAnimation === key ? 'active' : '';
+            return `<button class="anim-tag ${active}" onclick="selectAnimation('${key}')">${label}</button>`;
+        }).join('');
+        updateAnimationHint(currentAnimation);
+    }
+
+    const ANIM_HINTS = {
+        none:       'Words appear instantly with no animation.',
+        popIn:      'Each word pops in with a spring bounce — fast and punchy.',
+        fadeIn:     'Words fade in softly from below — smooth and clean.',
+        slideUp:    'Words slide up from below as they appear — great for impact.',
+        slideDown:  'Words drop down from above — dynamic entry.',
+        flip:       'Words flip in from the side — cinematic.',
+        typewriter: 'Words appear one-by-one like typing — builds suspense.',
+        wave:       'Highlighted word waves gently — looping effect.',
+        zoom:       'Highlighted word pulses larger — draw attention.',
+        bounce:     'Highlighted word bounces up — energetic feel.',
+        shake:      'Highlighted word shakes side-to-side — intense.',
+        glow:       'Highlighted word glows bright — premium look.',
+    };
+
+    function updateAnimationHint(animId = currentAnimation) {
+        const hint = document.getElementById('animHint');
+        if (!hint) return;
+        if (!animId || animId === 'none' || !ANIM_HINTS[animId]) {
+            hint.textContent = '';
+            hint.classList.add('hidden');
+            return;
+        }
+        hint.textContent = ANIM_HINTS[animId];
+        hint.classList.remove('hidden');
+    }
+
+    function selectAnimation(animId) {
+        currentAnimation = animId;
+        rememberEditorAnimation(animId);
+        renderAnimTags();
+        _demoChunkIdx = 0;
+        showNearestChunk(0);
+        const pv = document.getElementById('previewVideo');
+        if (!pv || pv.paused) startDemoMode();
+    }
+
+    // Demo cycling: auto-advance through subtitle chunks when video is paused
+    function startDemoMode() {
+        stopDemoMode();
+        if (!subtitleEditorWords || subtitleEditorWords.length === 0) return;
+        const sc = OVERLAY_STYLES[currentOverlayStyle] || OVERLAY_STYLES.classic;
+        const chunkSize = sc.chunks || 4;
+        const maxChunks = Math.ceil(subtitleEditorWords.length / chunkSize);
+        if (maxChunks <= 1) return;
+        _demoChunkIdx = 0;
+        _demoInterval = setInterval(() => {
+            const sc2 = OVERLAY_STYLES[currentOverlayStyle] || OVERLAY_STYLES.classic;
+            const cs2 = sc2.chunks || 4;
+            const mx2 = Math.ceil(subtitleEditorWords.length / cs2);
+            _demoChunkIdx = (_demoChunkIdx + 1) % mx2;
+            const chunk = subtitleEditorWords.slice(_demoChunkIdx * cs2, (_demoChunkIdx + 1) * cs2);
+            if (chunk.length) renderOverlayChunk(chunk, -1, sc2);
+        }, 1400);
+    }
+
+    function stopDemoMode() {
+        if (_demoInterval) { clearInterval(_demoInterval); _demoInterval = null; }
+        _demoChunkIdx = 0;
+    }
+
+    function renderStyleThumbs() {
+        const container = document.getElementById('styleThumbs');
+        container.innerHTML = STYLE_LIST.map(s => {
+            if (s.sep) return `<div class="style-section-label">${s.sep}</div>`;
+            const active = currentOverlayStyle === s.id ? 'active' : '';
+            const sc = OVERLAY_STYLES[s.id];
+            const accentColor = sc ? sc.hi[0] : '#fff';
+            const borderStyle = active ? `border-color:${accentColor}` : '';
+            return `<button class="style-thumb ${active}" onclick="selectOverlayStyle('${s.id}')" style="${borderStyle}" title="${s.label}">${s.label}</button>`;
+        }).join('');
+    }
+
+    function selectOverlayStyle(styleId) {
+        currentOverlayStyle = styleId;
+        rememberEditorStyle(styleId);
+        const [dx, dy] = getStyleDefaultPos(styleId);
+        overlayPosX = dx;
+        overlayPosY = dy;
+        renderStyleThumbs();
+        applyOverlayStyle(styleId);
+        updatePosDisplay();
+        // Always show from first chunk and restart demo so user sees full text cycle
+        _demoChunkIdx = 0;
+        showNearestChunk(0);
+        const pv = document.getElementById('previewVideo');
+        if (!pv || pv.paused) startDemoMode();
+    }
+
+    function getStyleDefaultPos(style) {
+        if (['classic', 'clean'].includes(style)) return [0.5, 0.12];
+        if (['bounce', 'cinematic'].includes(style)) return [0.5, 0.88];
+        return [0.5, 0.80];
+    }
+
+    function applyOverlayStyle(styleId) {
+        const sc = OVERLAY_STYLES[styleId] || OVERLAY_STYLES.classic;
+        const text = document.getElementById('overlayText');
+        const container = document.getElementById('previewContainer');
+        if (!text || !container) return;
+
+        const scale = container.offsetWidth / 1080;
+        const cssFontSize = Math.max(8, Math.round(overlayFontSize * scale));
+
+        let tShadow = '';
+        if (sc.op > 0 && sc.outline !== 'none') {
+            const o = sc.op;
+            tShadow = `-${o}px -${o}px 0 ${sc.outline},${o}px -${o}px 0 ${sc.outline},-${o}px ${o}px 0 ${sc.outline},${o}px ${o}px 0 ${sc.outline}`;
+        } else if (sc.ts) {
+            tShadow = sc.ts;
+        }
+
+        const bgStyle = sc.bg && sc.bg !== 'none'
+            ? `background:${sc.bg};padding:2px 5px;border-radius:3px;`
+            : 'background:none;';
+
+        // Apply font override to CSS preview
+        let fontCss = sc.font.replace('1em', cssFontSize + 'px');
+        if (currentFont) {
+            fontCss = fontCss.replace(/^(\w+\s+[\d.]+px\s+).*$/, `$1"${currentFont}",sans-serif`);
+        }
+
+        text.style.cssText = `
+            font: ${fontCss};
+            color: ${sc.color};
+            text-shadow: ${tShadow};
+            ${bgStyle}
+            text-transform: ${sc.upper ? 'uppercase' : 'none'};
+            letter-spacing: ${sc.ls || 'normal'};
+            white-space: normal;
+            word-break: break-word;
+            line-height: 1.25;
+        `;
+        positionOverlay();
+    }
+
+    function positionOverlay() {
+        const container = document.getElementById('previewContainer');
+        const overlay = document.getElementById('subtitleOverlay');
+        if (!container || !overlay) return;
+        overlay.style.width = (overlayWidth * container.offsetWidth) + 'px';
+        overlay.style.left  = (overlayPosX * container.offsetWidth) + 'px';
+        overlay.style.top   = (overlayPosY * container.offsetHeight) + 'px';
+    }
+
+    function updatePosDisplay() {
+        const el = document.getElementById('posDisplay');
+        if (el) el.textContent = `X:${Math.round(overlayPosX * 100)}% Y:${Math.round(overlayPosY * 100)}% W:${Math.round(overlayWidth * 100)}%`;
+    }
+
+    function resetOverlayPosition() {
+        const [dx, dy] = getStyleDefaultPos(currentOverlayStyle);
+        overlayPosX = dx;
+        overlayPosY = dy;
+        positionOverlay();
+        updatePosDisplay();
+    }
+
+    function applyVideoTransform() {
+        const v = document.getElementById('previewVideo');
+        const c = document.getElementById('previewContainer');
+        if (!v || !c) return;
+        const maxX = c.offsetWidth  * (videoZoom - 1) / 2;
+        const maxY = c.offsetHeight * (videoZoom - 1) / 2;
+        videoPanXPx = Math.max(-maxX, Math.min(maxX, videoPanXPx));
+        videoPanYPx = Math.max(-maxY, Math.min(maxY, videoPanYPx));
+        v.style.transformOrigin = 'center center';
+        v.style.transform = `scale(${videoZoom}) translate(${videoPanXPx / videoZoom}px, ${videoPanYPx / videoZoom}px)`;
+        const sl = document.getElementById('videoZoomSlider');
+        const lb = document.getElementById('videoZoomVal');
+        if (sl) sl.value = Math.round(videoZoom * 100);
+        if (lb) lb.textContent = videoZoom.toFixed(1) + 'x';
+        c.style.cursor = videoZoom > 1.01 ? (_vidPan.active ? 'grabbing' : 'grab') : '';
+    }
+
+    function resetVideoTransform() {
+        videoZoom = 1.0; videoPanXPx = 0.0; videoPanYPx = 0.0;
+        const v = document.getElementById('previewVideo');
+        if (v) v.style.transform = '';
+        const c = document.getElementById('previewContainer');
+        if (c) c.style.cursor = '';
+        const sl = document.getElementById('videoZoomSlider');
+        const lb = document.getElementById('videoZoomVal');
+        if (sl) sl.value = 100;
+        if (lb) lb.textContent = '1.0x';
+    }
+
+    // Drag state — shared, registered once
+    let _drag = { active: false, resize: null, sx: 0, sy: 0, spx: 0, spy: 0, spw: 0 };
+
+    function initOverlayDrag() {
+        const overlay   = document.getElementById('subtitleOverlay');
+        const container = document.getElementById('previewContainer');
+        if (!overlay || !container) return;
+
+        // Replace overlay with fresh clone to strip old mousedown listeners
+        const fresh = overlay.cloneNode(true);
+        overlay.parentNode.replaceChild(fresh, overlay);
+
+        const el = document.getElementById('subtitleOverlay');
+
+        // Resize handles — stop propagation so move drag doesn't also fire
+        el.querySelector('.resize-left').addEventListener('mousedown', e => {
+            e.stopPropagation();
+            _drag.active = true; _drag.resize = 'left';
+            _drag.sx = e.clientX; _drag.sy = e.clientY;
+            _drag.spx = overlayPosX; _drag.spy = overlayPosY; _drag.spw = overlayWidth;
+            e.preventDefault();
+        });
+        el.querySelector('.resize-right').addEventListener('mousedown', e => {
+            e.stopPropagation();
+            _drag.active = true; _drag.resize = 'right';
+            _drag.sx = e.clientX; _drag.sy = e.clientY;
+            _drag.spx = overlayPosX; _drag.spy = overlayPosY; _drag.spw = overlayWidth;
+            e.preventDefault();
+        });
+
+        // Move drag
+        el.addEventListener('mousedown', e => {
+            _drag.active = true; _drag.resize = null;
+            _drag.sx = e.clientX; _drag.sy = e.clientY;
+            _drag.spx = overlayPosX; _drag.spy = overlayPosY;
+            e.preventDefault();
+        });
+        el.addEventListener('touchstart', e => {
+            _drag.active = true; _drag.resize = null;
+            _drag.sx = e.touches[0].clientX; _drag.sy = e.touches[0].clientY;
+            _drag.spx = overlayPosX; _drag.spy = overlayPosY;
+            e.preventDefault();
+        }, { passive: false });
+    }
+
+    // Register global drag move/end once at page load
+    document.addEventListener('mousemove', e => {
+        if (_vidPan.active) {
+            videoPanXPx = _vidPan.spx + (e.clientX - _vidPan.sx);
+            videoPanYPx = _vidPan.spy + (e.clientY - _vidPan.sy);
+            applyVideoTransform();
+        }
+        if (!_drag.active) return;
+        const container = document.getElementById('previewContainer');
+        if (!container) return;
+        const r = container.getBoundingClientRect();
+        if (_drag.resize === 'right') {
+            const dxf = (e.clientX - _drag.sx) / r.width;
+            overlayWidth = Math.max(0.15, Math.min(1.0, _drag.spw + dxf));
+        } else if (_drag.resize === 'left') {
+            const dxf = (e.clientX - _drag.sx) / r.width;
+            overlayWidth = Math.max(0.15, Math.min(1.0, _drag.spw - dxf));
+            overlayPosX  = Math.max(0.05, Math.min(0.95, _drag.spx + dxf / 2));
+        } else {
+            overlayPosX = Math.max(0.05, Math.min(0.95, _drag.spx + (e.clientX - _drag.sx) / r.width));
+            overlayPosY = Math.max(0.05, Math.min(0.95, _drag.spy + (e.clientY - _drag.sy) / r.height));
+        }
+        positionOverlay(); updatePosDisplay();
+    });
+    document.addEventListener('mouseup', () => { _drag.active = false; _vidPan.active = false; if (videoZoom > 1.01) { const c = document.getElementById('previewContainer'); if (c) c.style.cursor = 'grab'; } });
+    document.addEventListener('touchmove', e => {
+        if (!_drag.active) return;
+        const container = document.getElementById('previewContainer');
+        if (!container) return;
+        const r = container.getBoundingClientRect();
+        overlayPosX = Math.max(0.05, Math.min(0.95, _drag.spx + (e.touches[0].clientX - _drag.sx) / r.width));
+        overlayPosY = Math.max(0.05, Math.min(0.95, _drag.spy + (e.touches[0].clientY - _drag.sy) / r.height));
+        positionOverlay(); updatePosDisplay();
+    }, { passive: true });
+    document.addEventListener('touchend', () => { _drag.active = false; });
+
+    function syncOverlayToTime(time) {
+        if (!subtitleEditorWords || !subtitleEditorWords.length) return;
+        const sc = OVERLAY_STYLES[currentOverlayStyle] || OVERLAY_STYLES.classic;
+        const chunkSize = sc.chunks || 4;
+        const t = time + subtitleTimeOffset; // convert clip-relative time to absolute word timestamps
+        for (let i = 0; i < subtitleEditorWords.length; i += chunkSize) {
+            const chunk = subtitleEditorWords.slice(i, i + chunkSize);
+            if (t >= chunk[0].start && t <= chunk[chunk.length-1].end + 0.05) {
+                renderOverlayChunk(chunk, t, sc);
+                return;
+            }
+        }
+        // Between subtitle chunks — show nearest so overlay stays visible
+        showNearestChunk(time);
+    }
+
+    function renderOverlayChunk(chunk, currentTime, sc) {
+        const ot = document.getElementById('overlayText');
+        if (!ot) return;
+        const anim = WORD_ANIMATIONS[currentAnimation];
+        const demoActiveIndex = currentTime < 0 && anim && anim.active ? Math.floor(chunk.length / 2) : -1;
+        ot.innerHTML = chunk.map((w, j) => {
+            const isActive = demoActiveIndex >= 0
+                ? j === demoActiveIndex
+                : currentTime >= 0 && currentTime >= w.start && currentTime <= w.end + 0.05;
+            const word = sc.upper ? w.word.trim().toUpperCase() : w.word.trim();
+            const color = isActive ? sc.hi[j % sc.hi.length] : (sc.color || '#fff');
+
+            let transform = isActive && !anim ? 'scale(1.12)' : 'scale(1)';
+            let animCss = '';
+
+            if (anim) {
+                if (anim.entry) {
+                    // Entry animation fires on all words with staggered delay
+                    const delay = (j * anim.stagger).toFixed(2);
+                    animCss = `animation:${anim.entry} ${anim.dur} ${anim.easing} ${delay}s both;`;
+                    transform = isActive ? 'scale(1.08)' : 'scale(1)';
+                }
+                if (anim.active && isActive) {
+                    // Looping animation on the active highlighted word
+                    animCss = `animation:${anim.active} ${anim.activeDur} ease infinite;`;
+                    transform = 'none';
+                } else if (anim.active && !isActive) {
+                    transform = 'scale(1)';
+                }
+            }
+
+            return `<span style="display:inline-block;color:${color};transform:${transform};${animCss}">${escapeHtml(word)}</span>`;
+        }).join('<span style="display:inline-block;width:.28em"></span>');
+    }
+
+    function onPreviewTimeUpdate() {
+        syncOverlayToTime(this.currentTime);
+        showStaticOverlayIfPaused();
+    }
+
+    // Show the nearest subtitle chunk as a static preview (so overlay is always visible)
+    function showStaticOverlayIfPaused() {
+        const pv = document.getElementById('previewVideo');
+        if (!pv || !pv.paused) return;
+        showNearestChunk(pv.currentTime || 0);
+    }
+
+    function showNearestChunk(time) {
+        if (!subtitleEditorWords || !subtitleEditorWords.length) return;
+        const sc = OVERLAY_STYLES[currentOverlayStyle] || OVERLAY_STYLES.classic;
+        const chunkSize = sc.chunks || 4;
+        const t = time + subtitleTimeOffset; // convert to absolute word timestamps
+        // Find nearest chunk to current time
+        let bestChunk = null, bestDist = Infinity;
+        for (let i = 0; i < subtitleEditorWords.length; i += chunkSize) {
+            const chunk = subtitleEditorWords.slice(i, i + chunkSize);
+            const mid = (chunk[0].start + chunk[chunk.length - 1].end) / 2;
+            const dist = Math.abs(mid - t);
+            if (dist < bestDist) { bestDist = dist; bestChunk = chunk; }
+        }
+        if (bestChunk) renderOverlayChunk(bestChunk, -1, sc); // -1 = no active word highlight
+    }
+
+    async function openSubtitleEditor(clipName) {
+        subtitleEditorClip = clipName;
+        try {
+            const res = await fetch(`/api/clips/${encodeURIComponent(clipName)}/subtitles`);
+            if (!res.ok) { alert('No subtitle data found for this clip.'); return; }
+            const meta = await res.json();
+
+            // Defensive: words might be missing in very old clips
+            if (!meta.words || !Array.isArray(meta.words) || meta.words.length === 0) {
+                alert('This clip has no word-timing data. Re-process the video with a caption style selected to enable the editor.');
+                return;
+            }
+
+            subtitleEditorWords = JSON.parse(JSON.stringify(meta.words));
+            currentOverlayStyle = resolveInitialEditorStyle(meta);
+            rememberEditorStyle(currentOverlayStyle);
+            currentFont = meta.font || null;
+            currentAnimation = isKnownWordAnimation(meta.animation) ? meta.animation : getPreferredEditorAnimation();
+            rememberEditorAnimation(currentAnimation);
+            subtitleTimeOffset = meta.start || 0;
+
+            const [dx, dy] = getStyleDefaultPos(currentOverlayStyle);
+            overlayPosX  = meta.subtitle_x        != null ? meta.subtitle_x        : dx;
+            overlayPosY  = meta.subtitle_y        != null ? meta.subtitle_y        : dy;
+            overlayWidth = meta.subtitle_width    != null ? meta.subtitle_width    : 0.80;
+            overlayFontSize = meta.subtitle_fontsize != null ? meta.subtitle_fontsize : 90;
+            const savedVideoZoom = meta.video_zoom != null ? parseFloat(meta.video_zoom) : 1.0;
+            const savedVideoPanX = meta.video_pan_x != null ? parseFloat(meta.video_pan_x) : 0.0;
+            const savedVideoPanY = meta.video_pan_y != null ? parseFloat(meta.video_pan_y) : 0.0;
+
+            document.getElementById('editorClipName').textContent = clipName;
+
+            // Load video into preview player
+            const origVid = document.querySelector(`[data-clip="${CSS.escape(clipName)}"] video`);
+            const previewVideo = document.getElementById('previewVideo');
+            previewVideo.src = origVid ? origVid.src.split('?')[0] : `/clips/${encodeURIComponent(clipName)}`;
+            previewVideo.removeEventListener('timeupdate', onPreviewTimeUpdate);
+            previewVideo.addEventListener('timeupdate', onPreviewTimeUpdate);
+            const overlayWrapper = document.getElementById('subtitleOverlayWrapper');
+            overlayWrapper.classList.add('video-paused'); // start paused
+            previewVideo.onplay  = () => { stopDemoMode(); overlayWrapper.classList.remove('video-paused'); };
+            previewVideo.onpause = () => { syncOverlayToTime(previewVideo.currentTime); overlayWrapper.classList.add('video-paused'); };
+
+            // Font size slider
+            document.getElementById('fontSizeSlider').value = overlayFontSize;
+            document.getElementById('fontSizeVal').textContent = overlayFontSize;
+
+            // Reset video zoom/pan for fresh session
+            resetVideoTransform();
+
+            // Show modal first so elements have layout dimensions
+            document.getElementById('subtitleModal').classList.remove('hidden');
+
+            // Init overlay after browser layout pass
+            requestAnimationFrame(() => {
+                renderStyleThumbs();
+                renderFontPicker();
+                renderAnimTags();
+                applyOverlayStyle(currentOverlayStyle);
+                updatePosDisplay();
+                initOverlayDrag();
+                const previewContainer = document.getElementById('previewContainer');
+                videoZoom = !Number.isNaN(savedVideoZoom) && savedVideoZoom > 1.01 ? savedVideoZoom : 1.0;
+                if (previewContainer && videoZoom > 1.01) {
+                    videoPanXPx = (Number.isFinite(savedVideoPanX) ? savedVideoPanX : 0) * previewContainer.offsetWidth * videoZoom;
+                    videoPanYPx = (Number.isFinite(savedVideoPanY) ? savedVideoPanY : 0) * previewContainer.offsetHeight * videoZoom;
+                } else {
+                    videoPanXPx = 0.0;
+                    videoPanYPx = 0.0;
+                }
+                applyVideoTransform();
+                showNearestChunk(0); // show first subtitle chunk immediately
+            });
+
+            renderSubtitleEditor(subtitleEditorWords, currentOverlayStyle);
+        } catch (e) {
+            console.error('openSubtitleEditor error:', e);
+            alert('Failed to open caption editor: ' + e.message);
+        }
+    }
+
+    function closeSubtitleEditor() {
+        const pv = document.getElementById('previewVideo');
+        pv.pause();
+        stopDemoMode();
+        pv.removeEventListener('timeupdate', onPreviewTimeUpdate);
+        pv.src = '';
+        document.getElementById('subtitleModal').classList.add('hidden');
+        document.getElementById('subtitleEditorBody').innerHTML = '';
+        document.getElementById('subtitleTextBox').value = '';
+        document.getElementById('overlayText').innerHTML = '';
+        const wc = document.getElementById('wordCount');
+        if (wc) wc.textContent = '0 words';
+        subtitleEditorClip  = null;
+        subtitleEditorWords = [];
+    }
+
+    function renderSubtitleEditor(words, style, updateTextBox = true) {
+        const body = document.getElementById('subtitleEditorBody');
+        if (!words || words.length === 0) {
+            body.innerHTML = '<p class="text-gray-400 text-sm py-2">No word timing data.</p>';
+            return;
+        }
+        const CHUNK = 5;
+        let html = '';
+        for (let i = 0; i < words.length; i += CHUNK) {
+            const slice = words.slice(i, i + CHUNK);
+            const t0 = slice[0].start.toFixed(2);
+            const t1 = slice[slice.length-1].end.toFixed(2);
+            html += `<div class="word-chunk">
+                <div class="chunk-time">${t0}s – ${t1}s</div>
+                <div class="chunk-line">${
+                    slice.map((w, j) =>
+                        `<span contenteditable="true" spellcheck="false" class="word-token" data-idx="${i+j}">${escapeHtml(w.word.trim())}</span>`
+                    ).join('')
+                }</div></div>`;
+        }
+        body.innerHTML = html;
+        body.querySelectorAll('.word-token').forEach(span => {
+            span.addEventListener('input', () => {
+                const idx = parseInt(span.dataset.idx);
+                subtitleEditorWords[idx].word = ' ' + span.textContent.trim();
+                document.getElementById('subtitleTextBox').value = subtitleEditorWords.map(w => w.word.trim()).join(' ');
+            });
+        });
+        if (updateTextBox) {
+            const text = words.map(w => w.word.trim()).join(' ');
+            document.getElementById('subtitleTextBox').value = text;
+            updateWordCount(text);
+        }
+    }
+
+    function syncTextBoxToWords(text) {
+        if (!subtitleEditorWords || subtitleEditorWords.length === 0) return;
+        const tokens = text.split(/\s+/).map(t => t.trim()).filter(Boolean);
+        if (tokens.length === 0) return;
+        const old = subtitleEditorWords;
+        const avgDur = old.reduce((a, w) => a + (w.end - w.start), 0) / old.length;
+        const rebuilt = [];
+        for (let i = 0; i < tokens.length; i++) {
+            const src   = old[Math.min(i, old.length - 1)];
+            const start = i < old.length ? src.start : rebuilt[i-1].end;
+            const end   = i < old.length ? src.end   : start + avgDur;
+            rebuilt.push({ word: ' ' + tokens[i], start, end });
+        }
+        subtitleEditorWords = rebuilt;
+    }
+
+    function updateWordCount(text) {
+        const count = text.trim() ? text.trim().split(/\s+/).length : 0;
+        const el = document.getElementById('wordCount');
+        if (el) el.textContent = `${count} word${count !== 1 ? 's' : ''}`;
+    }
+
+    function buildEditorRenderPayload() {
+        const previewContainer = document.getElementById('previewContainer');
+        const previewWidth = previewContainer ? previewContainer.offsetWidth : 234;
+        const previewHeight = previewContainer ? previewContainer.offsetHeight : 416;
+        const normalizedZoom = Math.max(videoZoom || 1, 1);
+
+        return {
+            words: subtitleEditorWords,
+            style: currentOverlayStyle,
+            animation: currentAnimation,
+            posX: overlayPosX,
+            posY: overlayPosY,
+            fontSize: overlayFontSize,
+            font: currentFont,
+            width: overlayWidth,
+            videoZoom: videoZoom,
+            videoPanX: previewWidth > 0 ? videoPanXPx / (previewWidth * normalizedZoom) : 0,
+            videoPanY: previewHeight > 0 ? videoPanYPx / (previewHeight * normalizedZoom) : 0
+        };
+    }
+
+    async function applySubtitleEdits() {
+        const btn = document.getElementById('applyBtn');
+        btn.disabled  = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Re-rendering...';
+        setProcessing(true);
+        document.getElementById('processingStatus').textContent = 'Re-rendering';
+        try {
+            const res = await fetch(`/api/clips/${encodeURIComponent(subtitleEditorClip)}/subtitles`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(buildEditorRenderPayload())
+            });
+            const data = await res.json();
+            if (res.ok) {
+                const clipToRefresh = subtitleEditorClip;
+                closeSubtitleEditor();
+                const video = document.querySelector(`[data-clip="${CSS.escape(clipToRefresh)}"] video`);
+                if (video) video.src = video.src.split('?')[0] + '?t=' + Date.now();
+            } else {
+                alert('Re-render failed: ' + (data.error || 'Unknown error'));
+                setProcessing(false);
+            }
+        } catch (e) {
+            alert('Failed: ' + e.message);
+            setProcessing(false);
+        } finally {
+            btn.disabled  = false;
+            btn.innerHTML = '<i class="fas fa-sync-alt"></i> Apply & Re-render';
+        }
+    }
+
+    async function bakeAndDownload() {
+        const btn        = document.getElementById('bakeDownloadBtn');
+        const progressArea = document.getElementById('bakeProgressArea');
+        const progressBar  = document.getElementById('bakeProgressBar');
+        const progressPct  = document.getElementById('bakeProgressPct');
+        const progressLbl  = document.getElementById('bakeProgressLabel');
+
+        btn.disabled  = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting…';
+        progressArea.classList.remove('hidden');
+        progressBar.style.width = '0%';
+        progressPct.textContent = '0%';
+        progressLbl.textContent = 'Rendering…';
+
+        try {
+            // Step 1 — start the job
+            const startRes = await fetch(`/api/clips/${encodeURIComponent(subtitleEditorClip)}/render-download`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(buildEditorRenderPayload())
+            });
+            if (!startRes.ok) {
+                const err = await startRes.json().catch(() => ({}));
+                throw new Error(err.error || 'Failed to start render');
+            }
+            const { jobId } = await startRes.json();
+            btn.innerHTML = '<i class="fas fa-film"></i> Rendering…';
+
+            // Step 2 — poll for progress
+            await new Promise((resolve, reject) => {
+                const poll = setInterval(async () => {
+                    try {
+                        const pr = await fetch(`/api/bake-progress/${jobId}`);
+                        const data = await pr.json();
+                        if (data.error && !data.done) { clearInterval(poll); reject(new Error(data.error)); return; }
+                        const pct = data.progress || 0;
+                        progressBar.style.width = pct + '%';
+                        progressPct.textContent = pct + '%';
+                        if (data.done) {
+                            clearInterval(poll);
+                            if (data.error) reject(new Error(data.error));
+                            else resolve();
+                        }
+                    } catch (e) { clearInterval(poll); reject(e); }
+                }, 600);
+            });
+
+            // Step 3 — fetch as blob then save (avoids browser download-block after async)
+            progressLbl.textContent = 'Starting download…';
+            progressBar.style.width = '100%';
+            progressPct.textContent = '100%';
+            startServerDownload(
+                `/api/bake-download/${jobId}?name=${encodeURIComponent(subtitleEditorClip)}`,
+                subtitleEditorClip
+            );
+            progressLbl.textContent = 'Download started';
+
+        } catch (e) {
+            alert('Bake & Download error: ' + e.message);
+            progressLbl.textContent = 'Error — see above';
+        } finally {
+            btn.disabled  = false;
+            btn.innerHTML = '<i class="fas fa-download"></i> Bake & Download';
+            setTimeout(() => progressArea.classList.add('hidden'), 3000);
+        }
+    }
+
+    // Quick bake & download directly from gallery card (uses stored style/default position)
+    window.quickBakeDownload = async function(clipName) {
+        const btn = document.querySelector(`[data-clip="${CSS.escape(clipName)}"] [onclick^="quickBakeDownload"]`);
+        const origHtml = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting…'; }
+        try {
+            // Start the job
+            const startRes = await fetch(`/api/clips/${encodeURIComponent(clipName)}/render-download`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})  // use stored style/words/position
+            });
+            if (!startRes.ok) {
+                const err = await startRes.json().catch(() => ({}));
+                throw new Error(err.error || 'Failed to start');
+            }
+            const { jobId } = await startRes.json();
+
+            // Poll for progress, update button text
+            await new Promise((resolve, reject) => {
+                const poll = setInterval(async () => {
+                    try {
+                        const pr = await fetch(`/api/bake-progress/${jobId}`);
+                        const data = await pr.json();
+                        if (btn) btn.innerHTML = `<i class="fas fa-film"></i> ${data.progress || 0}%`;
+                        if (data.done) {
+                            clearInterval(poll);
+                            if (data.error) reject(new Error(data.error));
+                            else resolve();
+                        }
+                    } catch (e) { clearInterval(poll); reject(e); }
+                }, 600);
+            });
+
+            // Stream the finished file directly from the server so mobile browsers
+            // can handle the download natively without buffering the full blob in JS.
+            if (btn) btn.innerHTML = '<i class="fas fa-download"></i> Saving…';
+            startServerDownload(
+                `/api/bake-download/${jobId}?name=${encodeURIComponent(clipName)}`,
+                clipName
+            );
+
+        } catch (e) {
+            alert('Error: ' + e.message);
+        } finally {
+            setTimeout(() => { if (btn) { btn.disabled = false; btn.innerHTML = origHtml; } }, 2000);
+        }
+    };
+
+    // Close on backdrop click
+    document.getElementById('subtitleModal').addEventListener('click', function(e) {
+        if (e.target === this) closeSubtitleEditor();
+    });
+
+    // ── Utilities ─────────────────────────────────────────────────────────────
+    function escapeHtml(text) {
+        const d = document.createElement('div');
+        d.textContent = text;
+        return d.innerHTML;
+    }
+
+    function escapeAttr(text) {
+        return text.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+</script>
+</body>
+</html>
