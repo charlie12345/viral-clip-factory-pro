@@ -104,7 +104,7 @@ See [SETUP.md](docs/SETUP.md) for the full setup guide.
 
 ## Third-Party Software
 
-See [THIRD_PARTY.md](docs/THIRD_PARTY.md) for dependency and licensing notes.
+See [THIRD_PARTY.md](docs/THIRD_PARTY.md) for dependency and licensing notes. See [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for build/runtime segfault recovery steps.
 
 ## Current License Position
 
