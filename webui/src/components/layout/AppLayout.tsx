@@ -1,19 +1,22 @@
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { clsx } from 'clsx';
-import { Flame, LayoutDashboard, Film, PencilRuler, Activity, Settings, Github } from 'lucide-react';
+import { Flame, LayoutDashboard, Film, ListChecks, Activity, Settings, Clapperboard } from 'lucide-react';
 import { useActiveJob } from '@/hooks/queries';
 import { useEffect } from 'react';
 
 const NAV = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/library',   label: 'Library',   icon: Film },
-  { to: '/jobs',      label: 'Jobs',      icon: Activity },
-  { to: '/settings',  label: 'Settings',  icon: Settings },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, mobileLabel: null },
+  { to: '/library',   label: 'Library',   icon: Film,            mobileLabel: null },
+  { to: '/review',    label: 'Review',    icon: ListChecks,      mobileLabel: null },
+  { to: '/compilations', label: 'AI Montage', icon: Clapperboard, mobileLabel: 'Montage' },
+  { to: '/jobs',      label: 'Jobs',      icon: Activity,        mobileLabel: null },
+  { to: '/settings',  label: 'Settings',  icon: Settings,        mobileLabel: null },
 ];
 
 export function AppLayout() {
   const location = useLocation();
   const { data: job } = useActiveJob();
+  const isLongformEditor = location.pathname.startsWith('/longform-editor/');
 
   // Close the editor by stripping the route when on editor and pressing Escape is awkward
   // — we just rely on the back button inside the editor page.
@@ -25,9 +28,12 @@ export function AppLayout() {
   }, [location.pathname]);
 
   return (
-    <div className="flex h-full min-h-screen w-full bg-app-bg text-slate-100">
+    <div className="flex min-h-[100dvh] w-full min-w-0 bg-app-bg text-slate-100">
       {/* Sidebar */}
-      <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-white/5 bg-bg-panel/70 backdrop-blur-md">
+      <aside className={clsx(
+        'min-h-[100dvh] w-60 shrink-0 flex-col border-r border-white/5 bg-bg-panel/70 backdrop-blur-md',
+        isLongformEditor ? 'hidden' : 'hidden md:flex',
+      )}>
         <div className="px-5 pt-6 pb-4">
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-accent-pink via-brand-500 to-accent-blue shadow-glow-brand">
@@ -65,28 +71,38 @@ export function AppLayout() {
       </aside>
 
       {/* Mobile top bar */}
-      <div className="md:hidden fixed inset-x-0 top-0 z-30 flex h-12 items-center gap-2 border-b border-white/5 bg-bg-panel/95 px-3 backdrop-blur">
-        <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-accent-pink to-accent-blue">
+      <div className={clsx(
+        'fixed inset-x-0 top-0 z-30 h-12 min-w-0 items-center gap-1 overflow-hidden border-b border-white/5 bg-bg-panel/95 px-3 backdrop-blur md:hidden',
+        isLongformEditor ? 'hidden' : 'flex',
+      )}>
+        <div className="hidden h-10 w-10 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent-pink to-accent-blue min-[340px]:grid">
           <Flame className="h-4 w-4 text-white" />
         </div>
-        <span className="text-sm font-bold">Viral Clip Factory</span>
-        <nav className="ml-auto flex gap-1">
-          {NAV.map(({ to, label, icon: Icon }) => (
+        <span className="hidden min-w-0 flex-1 truncate text-sm font-bold sm:block">Viral Clip Factory</span>
+        <nav className="ml-auto flex shrink-0 gap-0">
+          {NAV.map(({ to, label, icon: Icon, mobileLabel }) => (
             <NavLink
               key={to}
               to={to}
-              className={({ isActive }) =>
-                clsx('grid h-8 w-8 place-items-center rounded-md', isActive ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5')
-              }
+              className={({ isActive }) => clsx(
+                mobileLabel
+                  ? 'flex h-11 w-14 flex-col items-center justify-center gap-0.5 rounded-md text-[8px] font-bold leading-none'
+                  : 'grid h-11 w-10 place-items-center rounded-md',
+                isActive
+                  ? mobileLabel ? 'bg-fuchsia-500/20 text-fuchsia-100 ring-1 ring-fuchsia-400/35' : 'bg-white/10 text-white'
+                  : mobileLabel ? 'bg-fuchsia-500/[0.07] text-fuchsia-200 hover:bg-fuchsia-500/15' : 'text-slate-400 hover:bg-white/5',
+              )}
               title={label}
+              aria-label={label}
             >
-              <Icon className="h-4 w-4" />
+              <Icon className={mobileLabel ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+              {mobileLabel && <span>{mobileLabel}</span>}
             </NavLink>
           ))}
         </nav>
       </div>
 
-      <main className="flex-1 min-w-0 pt-12 md:pt-0">
+      <main className={clsx('min-w-0 max-w-full flex-1', isLongformEditor ? 'pt-0' : 'pt-12 md:pt-0')}>
         <Outlet />
       </main>
     </div>

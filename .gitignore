@@ -1,14 +1,26 @@
+# Secrets and local environment
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+id_rsa
+id_ed25519
 
+# Dependencies and virtualenvs
 node_modules/
 venv/
+.venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.Python
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
+# Runtime state (generated on each machine)
 dashboard/runtime/*
 !dashboard/runtime/.gitkeep
 
@@ -27,20 +39,54 @@ viral_clips/*
 viral_clips/_sources/*
 !viral_clips/_sources/.gitkeep
 
+# Media — never commit user footage or exports
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.m4v
+*.wmv
+*.flv
+*.mpeg
+*.mpg
+*.3gp
+*.ts
+*.m4a
+*.wav
+*.mp3
+*.aac
+*.flac
+*.opus
+
+# Model weights and ML caches (downloaded at runtime)
+yolov8*.pt
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.bin
+weights/
+runs/
+.cache/
+models/
+
+# Generated web build (rebuilt by setup scripts)
+dashboard/public/dist/
+
+# Editor / OS junk
 *.log
 *.tmp
 *.part
 *.swp
 *.swo
-
-yolov8n.pt
-*.mp4
-*.mov
-*.mkv
-*.avi
-
-# Generated web build
-dashboard/public/dist/
-
-# TypeScript build cache
 *.tsbuildinfo
+*.yuv444p-backup
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local media roots sometimes mounted into the repo tree
+media/
+data/
+uploads/

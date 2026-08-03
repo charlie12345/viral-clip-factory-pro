@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Download, RefreshCcw, Type, ZoomIn, Palette, Settings2,
   Captions, Loader2, CheckCircle2, AlertCircle, Type as TypeIcon,
+  AlignCenterHorizontal, AlignCenterVertical,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { api, type ClipMetadata, type ClipWord } from '@/api/client';
@@ -11,6 +12,13 @@ import { OVERLAY_STYLES, STYLE_LIST, getStyleDefaultPos } from '@/lib/subtitle-s
 import { FONT_LIST } from '@/lib/fonts';
 import { WORD_ANIMATIONS, ANIMATION_ORDER, ANIMATION_KEYFRAMES } from '@/lib/animations';
 import { useUIStore } from '@/store/ui';
+import { EXPORT_PRESETS } from '@/lib/render-options';
+import {
+  clampCaptionValue,
+  clampCaptionX,
+  isNearFrameCenter,
+  normalizedToPercent,
+} from '@/lib/caption-position';
 
 const PREVIEW_W = 240;
 const PREVIEW_H = 426;
@@ -56,7 +64,7 @@ export function EditorPage() {
     setPreferredAnimation(a);
   }
   function setZoom(z: number) {
-    setVideoZoom(clamp(z, 1, 4));
+    setVideoZoom(clampCaptionValue(z, 1, 4));
     if (z <= 1.01) { setPanXPx(0); setPanYPx(0); }
   }
 
@@ -84,7 +92,7 @@ export function EditorPage() {
   }, [meta]);
 
   return (
-    <div className="flex h-full min-h-screen flex-col">
+    <div className="flex min-h-[calc(100dvh-3rem)] min-w-0 flex-col lg:h-[100dvh] lg:min-h-0 lg:overflow-hidden">
       <style>{ANIMATION_KEYFRAMES}</style>
 
       <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-white/5 bg-bg-panel/80 px-4 backdrop-blur-md">
@@ -173,10 +181,6 @@ interface EditorState {
   timeOffset: number;
 }
 
-function clamp(n: number, min: number, max: number) {
-  return Math.round(Math.max(min, Math.min(max, n)) * 10) / 10;
-}
-
 function EditorBody({
   clipName, meta, state, onApplied,
 }: {
@@ -191,6 +195,8 @@ function EditorBody({
   const [demoIndex, setDemoIndex] = useState(0);
   const [applyState, setApplyState] = useState<'idle' | 'rendering' | 'done' | 'error'>('idle');
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [showSafeArea, setShowSafeArea] = useState(true);
+  const [captionVerticalInset, setCaptionVerticalInset] = useState(0.05);
 
   const sc = OVERLAY_STYLES[state.style] || OVERLAY_STYLES.classic;
   const animDef = WORD_ANIMATIONS[state.animation];
@@ -269,13 +275,21 @@ function EditorBody({
 
   const displayChunk = state.words.slice(nearestChunkIdx * sc.chunks, (nearestChunkIdx + 1) * sc.chunks);
   const videoTime = paused ? -1 : currentTime + state.timeOffset;
+  const preset = EXPORT_PRESETS.find((item) => item.id === meta.export_preset);
+  const safeArea = meta.safe_area || preset?.safeArea;
+  const captionHorizontalInset = clampCaptionValue(state.overlayW, 0.15, 1) / 2;
+
+  useEffect(() => {
+    const nextY = clampCaptionValue(state.overlayY, captionVerticalInset, 1 - captionVerticalInset);
+    if (nextY !== state.overlayY) state.setOverlayY(nextY);
+  }, [captionVerticalInset, state.overlayY, state.setOverlayY]);
 
   return (
-    <div className="flex flex-1 min-h-0 flex-col lg:flex-row">
-      <section className="flex flex-col items-center gap-3 border-b border-white/5 p-4 lg:w-[420px] lg:border-b-0 lg:border-r lg:overflow-y-auto">
+    <div className="flex min-w-0 flex-col lg:min-h-0 lg:flex-1 lg:flex-row">
+      <section className="flex min-w-0 flex-col items-center gap-3 border-b border-white/5 p-4 lg:w-[420px] lg:shrink-0 lg:border-b-0 lg:border-r lg:overflow-y-auto">
         <p className="text-[11px] text-slate-500">Drag subtitle to reposition · Scroll to zoom</p>
         <div
-          className="relative w-[240px] overflow-hidden rounded-xl border-2 border-brand-500/30 bg-black"
+          className="relative w-full max-w-[240px] overflow-hidden rounded-xl border-2 border-brand-500/30 bg-black"
           style={{ aspectRatio: '9/16' }}
           onWheel={(e) => {
             e.preventDefault();
@@ -297,6 +311,21 @@ function EditorBody({
             onPlay={() => setPaused(false)}
             onPause={() => setPaused(true)}
           />
+          {showSafeArea && safeArea && (
+            <div
+              className="pointer-events-none absolute border border-dashed border-amber-300/70 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.45)]"
+              style={{
+                top: `${safeArea.top * 100}%`,
+                right: `${safeArea.right * 100}%`,
+                bottom: `${safeArea.bottom * 100}%`,
+                left: `${safeArea.left * 100}%`,
+              }}
+            >
+              <span className="absolute left-1 top-1 rounded bg-slate-950/75 px-1 py-0.5 font-mono text-[8px] uppercase tracking-wider text-amber-200">
+                Safe area
+              </span>
+            </div>
+          )}
           <SubtitleOverlay
             chunk={displayChunk}
             currentTime={videoTime}
@@ -311,7 +340,57 @@ function EditorBody({
             onPositionXChange={state.setOverlayX}
             onPositionYChange={state.setOverlayY}
             onWidthChange={state.setOverlayW}
+            onVerticalInsetChange={setCaptionVerticalInset}
           />
+        </div>
+
+        {safeArea && (
+          <button
+            type="button"
+            className="rounded-md bg-white/5 px-2.5 py-1 text-[10px] font-semibold text-slate-300 ring-1 ring-white/10 transition active:translate-y-px"
+            onClick={() => setShowSafeArea((visible) => !visible)}
+          >
+            {showSafeArea ? 'Hide' : 'Show'} {preset?.label || 'platform'} safe area
+          </button>
+        )}
+
+        <div className="w-full max-w-[240px] space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-slate-300">Caption Position</span>
+            <span className="text-[10px] text-slate-500">Arrow keys: 0.1% · Shift: 1%</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <PositionNumberInput
+              label="X"
+              value={state.overlayX}
+              min={captionHorizontalInset}
+              max={1 - captionHorizontalInset}
+              onChange={(value) => state.setOverlayX(clampCaptionX(value, state.overlayW))}
+            />
+            <PositionNumberInput
+              label="Y"
+              value={state.overlayY}
+              min={captionVerticalInset}
+              max={1 - captionVerticalInset}
+              onChange={(value) => state.setOverlayY(clampCaptionValue(value, captionVerticalInset, 1 - captionVerticalInset))}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="flex items-center justify-center gap-1.5 rounded-md bg-white/5 px-2 py-1.5 text-[10px] font-semibold text-slate-300 ring-1 ring-white/10 transition hover:bg-white/10 active:translate-y-px"
+              onClick={() => state.setOverlayX(0.5)}
+            >
+              <AlignCenterHorizontal className="h-3 w-3" /> Center X
+            </button>
+            <button
+              type="button"
+              className="flex items-center justify-center gap-1.5 rounded-md bg-white/5 px-2 py-1.5 text-[10px] font-semibold text-slate-300 ring-1 ring-white/10 transition hover:bg-white/10 active:translate-y-px"
+              onClick={() => state.setOverlayY(0.5)}
+            >
+              <AlignCenterVertical className="h-3 w-3" /> Center Y
+            </button>
+          </div>
         </div>
 
         <div className="w-full max-w-[240px] space-y-1">
@@ -344,12 +423,12 @@ function EditorBody({
         </div>
 
         <div className="text-[11px] font-mono text-slate-500">
-          X: {Math.round(state.overlayX * 100)}% &nbsp; Y: {Math.round(state.overlayY * 100)}% &nbsp; W: {Math.round(state.overlayW * 100)}%
+          X: {normalizedToPercent(state.overlayX)}% &nbsp; Y: {normalizedToPercent(state.overlayY)}% &nbsp; W: {normalizedToPercent(state.overlayW)}%
         </div>
       </section>
 
-      <section className="flex min-h-0 flex-1 flex-col">
-        <div className="flex-1 overflow-y-auto p-4 space-y-5">
+      <section className="flex min-w-0 flex-col lg:min-h-0 lg:flex-1">
+        <div className="min-w-0 space-y-5 p-4 lg:flex-1 lg:overflow-y-auto">
           <div>
             <div className="label flex items-center gap-1.5"><Palette className="h-3 w-3" /> Caption Style</div>
             <div className="flex flex-wrap gap-1.5">
@@ -435,7 +514,7 @@ function EditorBody({
           />
         </div>
 
-        <footer className="shrink-0 border-t border-white/5 bg-bg-panel/80 p-4 backdrop-blur-md space-y-3">
+        <footer className="border-t border-white/5 bg-bg-panel/80 p-4 backdrop-blur-md space-y-3 lg:shrink-0">
           {bake.active && bake.progress > 0 && (
             <div>
               <div className="flex justify-between text-[11px] text-slate-300">
@@ -453,7 +532,7 @@ function EditorBody({
             </div>
           )}
           {applyState === 'error' && applyError && (
-            <div className="flex items-center gap-2 rounded-md bg-red-500/15 px-3 py-1.5 text-[11px] text-red-300">
+            <div className="flex min-w-0 items-center gap-2 break-words rounded-md bg-red-500/15 px-3 py-1.5 text-[11px] text-red-300 [overflow-wrap:anywhere]">
               <AlertCircle className="h-3 w-3" /> {applyError}
             </div>
           )}
@@ -488,7 +567,7 @@ function EditorBody({
 
 function SubtitleOverlay({
   chunk, currentTime, styleId, fontSize, font, animation, paused, x, y, w,
-  onPositionXChange, onPositionYChange, onWidthChange,
+  onPositionXChange, onPositionYChange, onWidthChange, onVerticalInsetChange,
 }: {
   chunk: ClipWord[];
   currentTime: number;
@@ -501,11 +580,22 @@ function SubtitleOverlay({
   onPositionXChange: (n: number) => void;
   onPositionYChange: (n: number) => void;
   onWidthChange: (n: number) => void;
+  onVerticalInsetChange: (n: number) => void;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ active: boolean; mode: 'move' | 'left' | 'right' | null; sx: number; sy: number; spx: number; spy: number; spw: number; }>(
-    { active: false, mode: null, sx: 0, sy: 0, spx: 0, spy: 0, spw: 0 }
+  const drag = useRef<{
+    active: boolean;
+    pointerId: number | null;
+    mode: 'move' | 'left' | 'right' | null;
+    sx: number;
+    sy: number;
+    spx: number;
+    spy: number;
+    spw: number;
+  }>(
+    { active: false, pointerId: null, mode: null, sx: 0, sy: 0, spx: 0, spy: 0, spw: 0 }
   );
+  const [dragMode, setDragMode] = useState<'move' | 'left' | 'right' | null>(null);
 
   const sc = OVERLAY_STYLES[styleId] || OVERLAY_STYLES.classic;
   const anim = WORD_ANIMATIONS[animation];
@@ -514,43 +604,109 @@ function SubtitleOverlay({
   const scale = 240 / 1080;
   const cssFontSize = Math.max(8, Math.round(fontSize * scale));
 
-  // Start drag
-  const onMoveMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    drag.current = { active: true, mode: 'move', sx: e.clientX, sy: e.clientY, spx: x, spy: y, spw: w };
-  };
-  const onResizeMouseDown = (side: 'left' | 'right') => (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    drag.current = { active: true, mode: side, sx: e.clientX, sy: e.clientY, spx: x, spy: y, spw: w };
+  const getVerticalInset = () => {
+    const overlay = overlayRef.current;
+    const parent = overlay?.parentElement;
+    if (!overlay || !parent) return 0.05;
+    const parentHeight = parent.getBoundingClientRect().height;
+    if (!parentHeight) return 0.05;
+    return clampCaptionValue(Math.max(0.025, overlay.getBoundingClientRect().height / parentHeight / 2), 0.025, 0.49);
   };
 
   useEffect(() => {
-    function onMouseMove(e: MouseEvent) {
-      if (!drag.current.active) return;
-      const parent = overlayRef.current?.parentElement;
-      if (!parent) return;
-      const r = parent.getBoundingClientRect();
-      if (drag.current.mode === 'move') {
-        onPositionXChange(clamp(drag.current.spx + (e.clientX - drag.current.sx) / r.width, 0.05, 0.95));
-        onPositionYChange(clamp(drag.current.spy + (e.clientY - drag.current.sy) / r.height, 0.05, 0.95));
-      } else if (drag.current.mode === 'right') {
-        const dxf = (e.clientX - drag.current.sx) / r.width;
-        onWidthChange(clamp(drag.current.spw + dxf, 0.15, 1.0));
-      } else if (drag.current.mode === 'left') {
-        const dxf = (e.clientX - drag.current.sx) / r.width;
-        onWidthChange(clamp(drag.current.spw - dxf, 0.15, 1.0));
-        onPositionXChange(clamp(drag.current.spx + dxf / 2, 0.05, 0.95));
-      }
+    const overlay = overlayRef.current;
+    const parent = overlay?.parentElement;
+    if (!overlay || !parent || typeof ResizeObserver === 'undefined') {
+      onVerticalInsetChange(getVerticalInset());
+      return;
     }
-    function onMouseUp() { drag.current.active = false; drag.current.mode = null; }
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+    const reportInset = () => onVerticalInsetChange(getVerticalInset());
+    const observer = new ResizeObserver(reportInset);
+    observer.observe(overlay);
+    observer.observe(parent);
+    reportInset();
+    return () => observer.disconnect();
+  }, [onVerticalInsetChange]);
+
+  const startPointerInteraction = (
+    e: React.PointerEvent,
+    mode: 'move' | 'left' | 'right',
+  ) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    overlayRef.current?.focus({ preventScroll: true });
+    overlayRef.current?.setPointerCapture(e.pointerId);
+    drag.current = {
+      active: true,
+      pointerId: e.pointerId,
+      mode,
+      sx: e.clientX,
+      sy: e.clientY,
+      spx: x,
+      spy: y,
+      spw: w,
     };
-  }, [onPositionXChange, onPositionYChange, onWidthChange]);
+    setDragMode(mode);
+  };
+
+  const onResizePointerDown = (side: 'left' | 'right') => (e: React.PointerEvent) => {
+    e.stopPropagation();
+    startPointerInteraction(e, side);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!drag.current.active || drag.current.pointerId !== e.pointerId) return;
+    e.preventDefault();
+    const parent = overlayRef.current?.parentElement;
+    if (!parent) return;
+    const parentRect = parent.getBoundingClientRect();
+    if (!parentRect.width || !parentRect.height) return;
+
+    const dxf = (e.clientX - drag.current.sx) / parentRect.width;
+    const dyf = (e.clientY - drag.current.sy) / parentRect.height;
+
+    if (drag.current.mode === 'move') {
+      const halfHeight = getVerticalInset();
+      onPositionXChange(clampCaptionX(drag.current.spx + dxf, w));
+      onPositionYChange(clampCaptionValue(drag.current.spy + dyf, halfHeight, 1 - halfHeight));
+      return;
+    }
+
+    const startLeft = drag.current.spx - drag.current.spw / 2;
+    const startRight = drag.current.spx + drag.current.spw / 2;
+    if (drag.current.mode === 'right') {
+      const right = clampCaptionValue(startRight + dxf, startLeft + 0.15, 1);
+      const nextWidth = clampCaptionValue(right - startLeft, 0.15, 1);
+      onWidthChange(nextWidth);
+      onPositionXChange(clampCaptionValue((startLeft + right) / 2, nextWidth / 2, 1 - nextWidth / 2));
+    } else if (drag.current.mode === 'left') {
+      const left = clampCaptionValue(startLeft + dxf, 0, startRight - 0.15);
+      const nextWidth = clampCaptionValue(startRight - left, 0.15, 1);
+      onWidthChange(nextWidth);
+      onPositionXChange(clampCaptionValue((left + startRight) / 2, nextWidth / 2, 1 - nextWidth / 2));
+    }
+  };
+
+  const finishPointerInteraction = (e: React.PointerEvent) => {
+    if (drag.current.pointerId !== e.pointerId) return;
+    if (overlayRef.current?.hasPointerCapture(e.pointerId)) {
+      overlayRef.current.releasePointerCapture(e.pointerId);
+    }
+    drag.current.active = false;
+    drag.current.pointerId = null;
+    drag.current.mode = null;
+    setDragMode(null);
+  };
+
+  const onOverlayKeyDown = (e: React.KeyboardEvent) => {
+    const step = e.shiftKey ? 0.01 : 0.001;
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+    e.preventDefault();
+    if (e.key === 'ArrowLeft') onPositionXChange(clampCaptionX(x - step, w));
+    if (e.key === 'ArrowRight') onPositionXChange(clampCaptionX(x + step, w));
+    if (e.key === 'ArrowUp') onPositionYChange(clampCaptionValue(y - step, getVerticalInset(), 1 - getVerticalInset()));
+    if (e.key === 'ArrowDown') onPositionYChange(clampCaptionValue(y + step, getVerticalInset(), 1 - getVerticalInset()));
+  };
 
   // Build inline style
   const fontCss = sc.font.replace('1em', `${cssFontSize}px`);
@@ -560,73 +716,157 @@ function SubtitleOverlay({
     : sc.ts || 'none';
 
   return (
-    <div
-      ref={overlayRef}
-      className="absolute z-10"
-      style={{
-        left: `${x * 100}%`,
-        top: `${y * 100}%`,
-        width: `${w * 100}%`,
-        transform: 'translate(-50%, -50%)',
-        textAlign: 'center',
-        cursor: 'grab',
-      }}
-      onMouseDown={onMoveMouseDown}
-    >
+    <>
+      {dragMode === 'move' && isNearFrameCenter(x) && (
+        <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-brand-400/90" />
+      )}
+      {dragMode === 'move' && isNearFrameCenter(y) && (
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-brand-400/90" />
+      )}
       <div
-        className="absolute -left-1.5 top-0 bottom-0 w-3 cursor-ew-resize z-20"
-        onMouseDown={onResizeMouseDown('left')}
-      />
-      <div
-        className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-ew-resize z-20"
-        onMouseDown={onResizeMouseDown('right')}
-      />
-      <div
+        ref={overlayRef}
+        className="absolute z-10 select-none outline-none focus-visible:ring-1 focus-visible:ring-brand-400"
+        role="group"
+        aria-label="Caption position. Use arrow keys to move by 0.1 percent, or Shift and arrow keys to move by 1 percent."
+        tabIndex={0}
         style={{
-          font: finalFont,
-          color: sc.color,
-          textShadow: tShadow,
-          ...(sc.bg && sc.bg !== 'none' ? { background: sc.bg, padding: '2px 5px', borderRadius: 3 } : {}),
-          textTransform: sc.upper ? 'uppercase' : 'none',
-          letterSpacing: sc.ls || 'normal',
-          whiteSpace: 'normal',
-          wordBreak: 'break-word',
-          lineHeight: 1.25,
+          left: `${x * 100}%`,
+          top: `${y * 100}%`,
+          width: `${w * 100}%`,
+          transform: 'translate(-50%, -50%)',
+          textAlign: 'center',
+          cursor: dragMode === 'move' ? 'grabbing' : 'grab',
+          touchAction: 'none',
         }}
+        onPointerDown={(e) => startPointerInteraction(e, 'move')}
+        onPointerMove={onPointerMove}
+        onPointerUp={finishPointerInteraction}
+        onPointerCancel={finishPointerInteraction}
+        onLostPointerCapture={(e) => {
+          if (drag.current.pointerId !== e.pointerId) return;
+          drag.current.active = false;
+          drag.current.pointerId = null;
+          drag.current.mode = null;
+          setDragMode(null);
+        }}
+        onKeyDown={onOverlayKeyDown}
       >
-        {chunk.map((w, j) => {
-          const isActive = currentTime >= 0
-            ? (currentTime >= w.start && currentTime <= w.end + 0.05)
-            : (anim?.active ? j === Math.floor(chunk.length / 2) : false);
-          const word = sc.upper ? w.word.trim().toUpperCase() : w.word.trim();
-          const color = isActive ? sc.hi[j % sc.hi.length] : sc.color;
-          let transform = isActive && !anim ? 'scale(1.12)' : 'scale(1)';
-          let animCss: React.CSSProperties = {};
-          if (anim?.entry) {
-            const delay = (j * (anim.stagger ?? 0.06)).toFixed(2);
-            animCss = { animation: `${anim.entry} ${anim.dur ?? '.3s'} ${anim.easing ?? 'ease'} ${delay}s both` };
-            transform = isActive ? 'scale(1.08)' : 'scale(1)';
-          }
-          if (anim?.active && isActive) {
-            animCss = { animation: `${anim.active} ${anim.activeDur ?? '.5s'} ease infinite` };
-            transform = 'none';
-          }
-          if (paused && currentTime < 0) animCss.animationPlayState = 'paused';
-          return (
-            <span
-              key={j}
-              style={{
-                display: 'inline-block',
-                color,
-                transform,
-                marginRight: j === chunk.length - 1 ? 0 : `${Math.max(3, Math.round(cssFontSize * (animation === 'none' ? 0.22 : 0.34)))}px`,
-                ...animCss,
-              }}
-            >{word}</span>
-          );
-        })}
+        <div
+          className="absolute -left-1.5 top-0 bottom-0 z-20 w-3 cursor-ew-resize touch-none"
+          aria-hidden="true"
+          onPointerDown={onResizePointerDown('left')}
+        />
+        <div
+          className="absolute -right-1.5 top-0 bottom-0 z-20 w-3 cursor-ew-resize touch-none"
+          aria-hidden="true"
+          onPointerDown={onResizePointerDown('right')}
+        />
+        <div
+          style={{
+            font: finalFont,
+            color: sc.color,
+            textShadow: tShadow,
+            ...(sc.bg && sc.bg !== 'none' ? { background: sc.bg, padding: '2px 5px', borderRadius: 3 } : {}),
+            textTransform: sc.upper ? 'uppercase' : 'none',
+            letterSpacing: sc.ls || 'normal',
+            whiteSpace: 'normal',
+            wordBreak: 'break-word',
+            lineHeight: 1.25,
+          }}
+        >
+          {chunk.map((w, j) => {
+            const isActive = currentTime >= 0
+              ? (currentTime >= w.start && currentTime <= w.end + 0.05)
+              : (anim?.active ? j === Math.floor(chunk.length / 2) : false);
+            const word = sc.upper ? w.word.trim().toUpperCase() : w.word.trim();
+            const color = isActive ? sc.hi[j % sc.hi.length] : sc.color;
+            let transform = isActive && !anim ? 'scale(1.12)' : 'scale(1)';
+            let animCss: React.CSSProperties = {};
+            if (anim?.entry) {
+              const delay = (j * (anim.stagger ?? 0.06)).toFixed(2);
+              animCss = { animation: `${anim.entry} ${anim.dur ?? '.3s'} ${anim.easing ?? 'ease'} ${delay}s both` };
+              transform = isActive ? 'scale(1.08)' : 'scale(1)';
+            }
+            if (anim?.active && isActive) {
+              animCss = { animation: `${anim.active} ${anim.activeDur ?? '.5s'} ease infinite` };
+              transform = 'none';
+            }
+            if (paused && currentTime < 0) animCss.animationPlayState = 'paused';
+            return (
+              <span
+                key={j}
+                style={{
+                  display: 'inline-block',
+                  color,
+                  transform,
+                  marginRight: j === chunk.length - 1 ? 0 : `${Math.max(3, Math.round(cssFontSize * (animation === 'none' ? 0.22 : 0.34)))}px`,
+                  ...animCss,
+                }}
+              >{word}</span>
+            );
+          })}
+        </div>
       </div>
-    </div>
+    </>
+  );
+}
+
+function PositionNumberInput({
+  label, value, min, max, onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState(() => normalizedToPercent(value));
+  const editing = useRef(false);
+
+  useEffect(() => {
+    if (!editing.current) setDraft(normalizedToPercent(value));
+  }, [value]);
+
+  const commit = () => {
+    editing.current = false;
+    const parsed = Number.parseFloat(draft);
+    const normalized = Number.isFinite(parsed)
+      ? clampCaptionValue(parsed / 100, min, max)
+      : clampCaptionValue(value, min, max);
+    onChange(normalized);
+    setDraft(normalizedToPercent(normalized));
+  };
+
+  return (
+    <label className="space-y-1 text-[10px] font-semibold text-slate-500">
+      <span>{label} position (%)</span>
+      <input
+        type="number"
+        className="input h-8 px-2 py-1 font-mono text-xs"
+        min={(min * 100).toFixed(2)}
+        max={(max * 100).toFixed(2)}
+        step="0.01"
+        inputMode="decimal"
+        value={draft}
+        onFocus={() => { editing.current = true; }}
+        onChange={(e) => {
+          const nextDraft = e.target.value;
+          setDraft(nextDraft);
+          const parsed = Number.parseFloat(nextDraft);
+          if (Number.isFinite(parsed) && parsed / 100 >= min && parsed / 100 <= max) {
+            onChange(clampCaptionValue(parsed / 100, min, max));
+          }
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+          if (e.key === 'Escape') {
+            setDraft(normalizedToPercent(value));
+            e.currentTarget.blur();
+          }
+        }}
+      />
+    </label>
   );
 }
 
@@ -688,14 +928,14 @@ function WordEditor({
           const t0 = slice[0].start.toFixed(2);
           const t1 = slice[slice.length - 1].end.toFixed(2);
           return (
-            <div key={ci} className="rounded-lg border border-white/5 bg-black/30 p-2">
+            <div key={ci} className="min-w-0 max-w-full rounded-lg border border-white/5 bg-black/30 p-2">
               <div className="mb-1.5 flex items-center justify-between">
                 <div className="text-[10px] font-mono text-slate-500">{t0}s – {t1}s</div>
                 <button onClick={() => onSeek(slice[0].start)} className="text-[10px] text-brand-400 hover:text-brand-300">
                   jump to
                 </button>
               </div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex min-w-0 max-w-full flex-wrap gap-1.5">
                 {slice.map((w, j) => {
                   const idx = ci * CHUNK + j;
                   const isActive = currentTime >= 0 && currentTime >= w.start && currentTime <= w.end + 0.05;
@@ -735,7 +975,7 @@ function WordToken({ text, active, onCommit, onClick }: {
       onInput={(e) => setVal((e.target as HTMLElement).textContent || '')}
       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLElement).blur(); } }}
       className={clsx(
-        'rounded-md border px-1.5 py-0.5 text-[12px] outline-none transition cursor-text',
+        'max-w-full overflow-hidden break-all rounded-md border px-1.5 py-0.5 text-[12px] outline-none transition cursor-text',
         active
           ? 'border-brand-500 bg-brand-500/20 text-white'
           : 'border-white/10 bg-brand-500/10 text-slate-200 focus:border-brand-500 focus:bg-brand-500/20',

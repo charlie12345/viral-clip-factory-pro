@@ -2,12 +2,14 @@
 import os
 import sys
 import signal
+import time
 
-# Fast-path: rerender only needs cv2, yaml, subprocess, json — skip ML imports
-_IS_RERENDER = ('--mode' in sys.argv and
-                sys.argv.index('--mode') + 1 < len(sys.argv) and
-                sys.argv[sys.argv.index('--mode') + 1] == 'rerender') or \
-               '--rerender-json' in sys.argv
+# Fast paths only need cv2, yaml, subprocess, and json — skip the ML imports.
+_LIGHTWEIGHT_MODES = {"rerender", "longform-edit"}
+_REQUESTED_MODE = None
+if '--mode' in sys.argv and sys.argv.index('--mode') + 1 < len(sys.argv):
+    _REQUESTED_MODE = sys.argv[sys.argv.index('--mode') + 1]
+_IS_RERENDER = _REQUESTED_MODE in _LIGHTWEIGHT_MODES or '--rerender-json' in sys.argv
 
 import re
 import shutil
@@ -20,6 +22,47 @@ import argparse
 import tempfile
 import warnings
 import traceback
+
+from hardware_accel import (
+    available_video_backends,
+    encoder_args,
+    encoder_filter,
+    encoder_global_args,
+    run_with_encoder_fallback,
+    select_compute_device,
+    system_capabilities,
+)
+from export_presets import get_export_preset, safe_output_name
+from speaker_tracking import (
+    SmartSpeakerTracker,
+    TrackingConfig,
+    build_diarization_timeline,
+    diarization_cue_at_time,
+    merge_speaker_samples,
+)
+from longform_editor import (
+    analyze_source,
+    cuts_to_keep_segments,
+    probe_duration,
+    summarize_analysis,
+    write_longform_sidecars,
+)
+from transcription_backends import probe_whisper_cpp, transcribe_media, whisper_cpp_model_name
+from viral_intelligence import (
+    GeminiVideoClient,
+    LocalSemanticClient,
+    build_candidate_windows,
+    dedupe_temporal_candidates,
+    ensemble_score,
+    select_semantic_candidates,
+    temporal_iou,
+)
+from shorts_yield import (
+    active_speech_duration,
+    build_yield_batch,
+    confidence_tier,
+    transcript_for_analysis_range,
+)
 
 # Graceful cancel — the dashboard sends SIGTERM to stop a running job.
 # We set a flag that long-running loops should poll; if SIGTERM arrives
@@ -88,15 +131,176 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(_SCRIPT_DIR, "clip_config.yaml"), "r") as f:
     CONFIG = yaml.safe_load(f)
 
+RUNTIME_HARDWARE = {
+    "compute_device": "auto",
+    "video_encoder": "auto",
+    "vaapi_device": os.environ.get("VCF_VAAPI_DEVICE", "/dev/dri/renderD128"),
+    "ffmpeg_bin": os.environ.get("VCF_FFMPEG_PATH", "ffmpeg"),
+    "ffprobe_bin": os.environ.get("VCF_FFPROBE_PATH", "ffprobe"),
+    "transcription_provider": "auto",
+    "transcription_model": None,
+    "transcription_language": "auto",
+    "resolved_transcription_provider": None,
+    "transcription_topics": [],
+    "local_semantic": False,
+    "gemini_analysis": False,
+    "resolved_compute": "cpu",
+    "resolved_video_encoder": None,
+}
+
 # Constants
 TEMP_DIR = os.path.join(_SCRIPT_DIR, "temp_processing")
 OUTPUT_DIR = os.path.join(_SCRIPT_DIR, "viral_clips")
 SOURCES_DIR = os.path.join(OUTPUT_DIR, "_sources")
+CANDIDATE_MANIFESTS_DIR = os.path.join(OUTPUT_DIR, "_candidate_manifests")
 
 # Ensure Dirs
 if not os.path.exists(TEMP_DIR): os.makedirs(TEMP_DIR)
 if not os.path.exists(OUTPUT_DIR): os.makedirs(OUTPUT_DIR)
 if not os.path.exists(SOURCES_DIR): os.makedirs(SOURCES_DIR)
+if not os.path.exists(CANDIDATE_MANIFESTS_DIR): os.makedirs(CANDIDATE_MANIFESTS_DIR)
+
+
+def gpu_acceleration_enabled():
+    return bool(CONFIG.get("processing", {}).get("gpu_acceleration", True))
+
+
+def configured_video_backends(is_hdr=False):
+    backends = available_video_backends(
+        RUNTIME_HARDWARE["video_encoder"],
+        RUNTIME_HARDWARE["ffmpeg_bin"],
+        RUNTIME_HARDWARE["vaapi_device"],
+        is_hdr,
+        gpu_acceleration_enabled(),
+    )
+    requested = RUNTIME_HARDWARE["video_encoder"]
+    if requested not in ("auto", "cpu") and backends[0] != requested:
+        print(f"  > Requested encoder '{requested}' is unavailable; falling back to {backends[0]}")
+    return backends
+
+
+def build_encoder_command_prefix(backend):
+    return [
+        RUNTIME_HARDWARE["ffmpeg_bin"],
+        *encoder_global_args(backend, RUNTIME_HARDWARE["vaapi_device"]),
+    ]
+
+
+def resolve_compute_device():
+    device, backend = select_compute_device(
+        RUNTIME_HARDWARE["compute_device"],
+        torch,
+        gpu_acceleration_enabled(),
+    )
+    RUNTIME_HARDWARE["resolved_compute"] = backend
+    return device, backend
+
+
+def load_whisper_model():
+    model_name = RUNTIME_HARDWARE["transcription_model"] or CONFIG["transcription"]["model_size"]
+    device, backend = resolve_compute_device()
+    print(f"  > Compute backend: {backend.upper()}")
+    model_cache = os.path.expanduser(f"~/.cache/whisper/{model_name}.pt")
+    model = whisper.load_model(model_cache if os.path.isfile(model_cache) else model_name, device=device)
+    return model, device, backend
+
+
+def transcribe_source(media_path):
+    """Transcribe with the requested backend and fall back to another local backend.
+
+    Auto mode never selects a cloud service. Deepgram is attempted only when the
+    job explicitly requests it; a cloud/configuration failure falls back locally
+    so a long render is not discarded after upload and preprocessing.
+    """
+    requested = str(RUNTIME_HARDWARE.get("transcription_provider") or "auto")
+    model_name = RUNTIME_HARDWARE.get("transcription_model") or CONFIG["transcription"]["model_size"]
+    requested_language = str(RUNTIME_HARDWARE.get("transcription_language") or "auto").strip().lower()
+    backend_language = None if requested_language == "auto" else requested_language
+    cpp_model_path = os.environ.get("VCF_WHISPER_CPP_MODEL")
+    cpp_model_name = whisper_cpp_model_name(cpp_model_path)
+    _, compute_backend = resolve_compute_device()
+    accelerated = compute_backend in ("cuda", "rocm")
+    cpp_probe = probe_whisper_cpp(
+        executable=os.environ.get("VCF_WHISPER_CPP_PATH"),
+        model_path=cpp_model_path,
+    )
+    cpp_available = bool(cpp_probe.get("available"))
+    preferred_local = ["openai_whisper", "whisper_cpp"] if accelerated else ["whisper_cpp", "openai_whisper"]
+    if not cpp_available:
+        preferred_local = [provider for provider in preferred_local if provider != "whisper_cpp"]
+
+    if requested == "auto":
+        attempts = preferred_local
+    elif requested == "deepgram":
+        attempts = ["deepgram", *preferred_local]
+    elif requested == "whisper_cpp":
+        attempts = ["whisper_cpp", "openai_whisper"]
+    else:
+        attempts = ["openai_whisper"] + (["whisper_cpp"] if cpp_available else [])
+
+    attempts = list(dict.fromkeys(attempts))
+    failures = []
+    for provider in attempts:
+        model = None
+        device = None
+        try:
+            if provider == "openai_whisper":
+                print(f"🎙️ Transcribing with PyTorch Whisper ({model_name})...")
+                model, device, _ = load_whisper_model()
+                result = transcribe_media(
+                    media_path,
+                    provider=provider,
+                    whisper_model=model,
+                    openai_model_name=model_name,
+                    openai_accelerated=accelerated,
+                    openai_options={"verbose": False, "word_timestamps": True},
+                    language=backend_language,
+                    ffmpeg_bin=RUNTIME_HARDWARE["ffmpeg_bin"],
+                )
+            elif provider == "whisper_cpp":
+                print(f"🎙️ Transcribing with whisper.cpp ({cpp_model_name})...")
+                result = transcribe_media(
+                    media_path,
+                    provider=provider,
+                    whisper_cpp_executable=os.environ.get("VCF_WHISPER_CPP_PATH"),
+                    whisper_cpp_model_path=cpp_model_path,
+                    language=requested_language,
+                    ffmpeg_bin=RUNTIME_HARDWARE["ffmpeg_bin"],
+                )
+            else:
+                print("🎙️ Transcribing with Deepgram Nova-3 (cloud opt-in)...")
+                result = transcribe_media(
+                    media_path,
+                    provider=provider,
+                    deepgram_model="nova-3",
+                    language=backend_language,
+                    ffmpeg_bin=RUNTIME_HARDWARE["ffmpeg_bin"],
+                )
+
+            RUNTIME_HARDWARE["resolved_transcription_provider"] = result.get("provider", provider)
+            RUNTIME_HARDWARE["transcription_model"] = result.get("model") or model_name
+            RUNTIME_HARDWARE["transcription_topics"] = result.get("topics", []) or []
+            print(
+                f"  > Transcription provider: {RUNTIME_HARDWARE['resolved_transcription_provider']}"
+                f" | segments: {len(result.get('segments', []))}"
+            )
+            return result
+        except Exception as error:
+            failures.append(f"{provider}: {error}")
+            if len(attempts) > 1:
+                print(f"  ⚠️  {provider} transcription unavailable ({error}); trying fallback...")
+        finally:
+            if model is not None:
+                del model
+            if device is not None:
+                release_compute_cache(device)
+
+    raise RuntimeError("All transcription providers failed: " + " | ".join(failures))
+
+
+def release_compute_cache(device):
+    if device == "cuda":
+        torch.cuda.empty_cache()
 
 GENERIC_KEYWORDS = {
     "best", "most", "least", "show", "review", "reaction", "story", "movie",
@@ -233,6 +437,10 @@ DEFAULT_RERANK_WEIGHTS = {
 }
 
 _YOLO_MODEL = None
+_SUBJECT_DETECTION_CACHE = {}
+_SUBJECT_DETECTION_CACHE_SOURCES = []
+_SUBJECT_SAMPLE_STEP_SEC = 0.45
+_MAX_SUBJECT_CACHE_SOURCES = 3
 
 
 def clamp(value, low, high):
@@ -252,9 +460,11 @@ def get_longform_config():
     return {
         "min_segment_sec": max(float(cfg.get("min_segment_sec", 0.5)), 0.05),
         "min_silence_to_cut_sec": max(float(cfg.get("min_silence_to_cut_sec", cfg.get("merge_gap_sec", 0.5))), 0.0),
+        "silence_threshold_db": float(cfg.get("silence_threshold_db", -35.0)),
         "edge_pad_sec": max(float(cfg.get("edge_pad_sec", 0.08)), 0.0),
         "word_snap_window_sec": max(float(cfg.get("word_snap_window_sec", 0.35)), 0.0),
         "audio_fade_sec": max(float(cfg.get("audio_fade_sec", 0.03)), 0.0),
+        "video_fade_sec": max(float(cfg.get("video_fade_sec", 0.0)), 0.0),
     }
 
 
@@ -281,11 +491,27 @@ def collect_word_timestamps(transcript_segments):
                 continue
             if end <= start:
                 continue
-            words.append({
+            item = {
                 "word": (word.get("word") or "").strip(),
                 "start": start,
                 "end": end,
-            })
+            }
+            confidence = word.get("confidence", word.get("probability"))
+            if confidence is not None:
+                try:
+                    item["confidence"] = float(confidence)
+                except (TypeError, ValueError):
+                    pass
+            speaker = word.get("speaker", seg.get("speaker"))
+            if speaker is not None:
+                item["speaker"] = speaker
+            speaker_confidence = word.get("speaker_confidence", seg.get("speaker_confidence"))
+            if speaker_confidence is not None:
+                try:
+                    item["speaker_confidence"] = float(speaker_confidence)
+                except (TypeError, ValueError):
+                    pass
+            words.append(item)
     words.sort(key=lambda w: (w["start"], w["end"]))
     return words
 
@@ -372,13 +598,71 @@ def round_float(value, digits=3):
 def get_yolo_model():
     global _YOLO_MODEL
     if _YOLO_MODEL is None:
-        _YOLO_MODEL = YOLO("yolov8n.pt")
+        model_path = CONFIG.get("tracking", {}).get("model", "yolov8n.pt")
+        try:
+            _YOLO_MODEL = YOLO(model_path)
+        except Exception as error:
+            raise RuntimeError(
+                f"Could not load tracking model '{model_path}'. "
+                "Check network access for the first-run download or place the weight file in the project root."
+            ) from error
     return _YOLO_MODEL
+
+
+def _source_cache_identity(video_path):
+    """Return a stable cache key that invalidates when a source is replaced."""
+    absolute = os.path.abspath(video_path)
+    try:
+        stat = os.stat(absolute)
+        return absolute, int(stat.st_mtime_ns), int(stat.st_size)
+    except OSError:
+        return absolute, 0, 0
+
+
+def _quantized_sample_time(time_sec, step_sec=_SUBJECT_SAMPLE_STEP_SEC):
+    step = max(0.05, float(step_sec))
+    return max(0.0, round(float(time_sec) / step) * step)
+
+
+def detect_frame_subjects_cached(video_path, frame_time, frame, model=None):
+    """Reuse face/person detections across overlapping Shorts candidates.
+
+    Candidate windows intentionally overlap, so without a source-time cache the
+    same frame can be sent through face recognition many times.  Cache only the
+    small detection dictionaries; frames remain owned by OpenCV and are never
+    retained in memory.
+    """
+    source_key = _source_cache_identity(video_path)
+    if source_key not in _SUBJECT_DETECTION_CACHE:
+        _SUBJECT_DETECTION_CACHE[source_key] = {}
+        _SUBJECT_DETECTION_CACHE_SOURCES.append(source_key)
+        while len(_SUBJECT_DETECTION_CACHE_SOURCES) > _MAX_SUBJECT_CACHE_SOURCES:
+            stale = _SUBJECT_DETECTION_CACHE_SOURCES.pop(0)
+            _SUBJECT_DETECTION_CACHE.pop(stale, None)
+
+    sample_key = (
+        int(round(float(frame_time) * 1000.0)),
+        bool(model is not None),
+    )
+    source_cache = _SUBJECT_DETECTION_CACHE[source_key]
+    cached = source_cache.get(sample_key)
+    # Person detection is only a fallback when no face is visible.  Reuse a
+    # face-only result produced by visual scoring instead of running the same
+    # face detector again when smart framing later asks for YOLO fallback too.
+    if cached is None and model is not None:
+        face_only = source_cache.get((sample_key[0], False))
+        if face_only:
+            cached = face_only
+    if cached is None:
+        cached = [dict(item) for item in detect_frame_subjects(frame, model=model)]
+        source_cache[sample_key] = cached
+    return [dict(item) for item in cached]
 
 
 def detect_frame_subjects(frame, model=None):
     detections = []
-    rgb_small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+    rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
     face_locations = face_recognition.face_locations(rgb_small_frame)
 
     for top, right, bottom, left in face_locations:
@@ -388,6 +672,7 @@ def detect_frame_subjects(frame, model=None):
         left *= 4
         detections.append({
             "cx": int((left + right) / 2),
+            "cy": int((top + bottom) / 2),
             "top": int(top),
             "left": int(left),
             "right": int(right),
@@ -410,6 +695,7 @@ def detect_frame_subjects(frame, model=None):
             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
             detections.append({
                 "cx": int((x1 + x2) / 2),
+                "cy": int((y1 + y2) / 2),
                 "top": int(y1),
                 "left": int(x1),
                 "right": int(x2),
@@ -426,7 +712,7 @@ def detect_frame_subjects(frame, model=None):
     return detections
 
 
-def normalize_frame_layout(frame_layout, width):
+def normalize_frame_layout(frame_layout, width, height=None):
     if isinstance(frame_layout, dict):
         layout = dict(frame_layout)
     else:
@@ -440,22 +726,87 @@ def normalize_frame_layout(frame_layout, width):
             try:
                 start = float(segment.get("start", 0.0))
                 end = float(segment.get("end", start))
-                center = int(segment.get("center", layout.get("static_center", width // 2)))
+                center = int(round(
+                    float(segment.get("center_x_ratio")) * width
+                    if segment.get("center_x_ratio") is not None
+                    else segment.get("center_x", segment.get("center", layout.get("static_center", width // 2)))
+                ))
             except Exception:
                 continue
             if end <= start:
                 continue
-            normalized_segments.append({
+            normalized_segment = {
                 "start": round_float(max(0.0, start), 3),
                 "end": round_float(max(0.0, end), 3),
                 "center": int(clamp(center, 0, width)),
-            })
+                "center_x": int(clamp(center, 0, width)),
+                "track_id": segment.get("track_id", segment.get("side")),
+                "side": segment.get("track_id", segment.get("side")),
+            }
+            for field in ("speaker", "speaker_confidence", "speakers"):
+                if segment.get(field) is not None:
+                    normalized_segment[field] = (
+                        list(segment[field])
+                        if field == "speakers" and isinstance(segment[field], (list, tuple))
+                        else segment[field]
+                    )
+            if height:
+                center_y = (
+                    float(segment.get("center_y_ratio")) * height
+                    if segment.get("center_y_ratio") is not None
+                    else segment.get("center_y", layout.get("center_y", height // 2))
+                )
+                crop_height = (
+                    float(segment.get("crop_height_ratio")) * height
+                    if segment.get("crop_height_ratio") is not None
+                    else segment.get("crop_height", segment.get("suggested_crop_height", layout.get("crop_height", height)))
+                )
+                normalized_segment.update({
+                    "center_y": int(clamp(round(float(center_y)), 0, height)),
+                    "crop_height": int(clamp(round(float(crop_height)), 2, height)),
+                })
+                if segment.get("crop_top_ratio") is not None or segment.get("crop_top") is not None:
+                    crop_top = (
+                        float(segment.get("crop_top_ratio")) * height
+                        if segment.get("crop_top_ratio") is not None
+                        else float(segment.get("crop_top"))
+                    )
+                    normalized_segment["crop_top"] = int(clamp(
+                        round(crop_top),
+                        0,
+                        max(0, height - normalized_segment["crop_height"]),
+                    ))
+            normalized_segments.append(normalized_segment)
         layout["switch_segments"] = normalized_segments
         if "static_center_ratio" in layout:
             layout["static_center"] = int(round(layout["static_center_ratio"] * width))
         elif "static_center" not in layout:
             layout["static_center"] = normalized_segments[0]["center"] if normalized_segments else width // 2
         layout["static_center"] = int(clamp(layout["static_center"], 0, width))
+        if height:
+            if layout.get("center_y_ratio") is not None:
+                layout["center_y"] = int(round(float(layout["center_y_ratio"]) * height))
+            elif "center_y" not in layout:
+                layout["center_y"] = normalized_segments[0].get("center_y", height // 2) if normalized_segments else height // 2
+            if layout.get("crop_height_ratio") is not None:
+                layout["crop_height"] = int(round(float(layout["crop_height_ratio"]) * height))
+            elif "crop_height" not in layout:
+                heights = [segment.get("crop_height") for segment in normalized_segments if segment.get("crop_height")]
+                layout["crop_height"] = int(np.median(heights)) if heights else height
+            layout["center_y"] = int(clamp(layout["center_y"], 0, height))
+            layout["crop_height"] = int(clamp(layout["crop_height"], 2, height))
+            if layout.get("crop_top_ratio") is not None:
+                layout["crop_top"] = int(round(float(layout["crop_top_ratio"]) * height))
+            elif "crop_top" not in layout:
+                tops = [segment.get("crop_top") for segment in normalized_segments if segment.get("crop_top") is not None]
+                if tops:
+                    layout["crop_top"] = int(np.median(tops))
+            if layout.get("crop_top") is not None:
+                layout["crop_top"] = int(clamp(
+                    layout["crop_top"],
+                    0,
+                    max(0, height - layout["crop_height"]),
+                ))
     elif layout["mode"] == "dual_stack":
         if "split_x_ratio" in layout:
             layout["split_x"] = int(round(layout["split_x_ratio"] * width))
@@ -474,6 +825,11 @@ def normalize_frame_layout(frame_layout, width):
         layout.setdefault("static_center_ratio", round_float(safe_div(layout.get("static_center", width // 2), width), 4))
         if layout["mode"] == "dual_stack":
             layout.setdefault("split_x_ratio", round_float(safe_div(layout["split_x"], width), 4))
+    if height and layout.get("mode") == "smart_switch":
+        layout.setdefault("center_y_ratio", round_float(safe_div(layout.get("center_y", height // 2), height), 4))
+        layout.setdefault("crop_height_ratio", round_float(safe_div(layout.get("crop_height", height), height), 4))
+        if layout.get("crop_top") is not None:
+            layout.setdefault("crop_top_ratio", round_float(safe_div(layout["crop_top"], height), 4))
 
     return layout
 
@@ -483,7 +839,12 @@ def _dedupe_subjects(detections, width, max_subjects=8):
     min_sep = max(28, width * 0.035)
     for detection in sorted(detections, key=lambda d: d.get("area", 0), reverse=True):
         cx = detection.get("cx", 0)
-        if any(abs(cx - subject.get("cx", 0)) < min_sep for subject in subjects):
+        cy = detection.get("cy", (detection.get("top", 0) + detection.get("bottom", 0)) / 2)
+        if any(
+            abs(cx - subject.get("cx", 0)) < min_sep
+            and abs(cy - subject.get("cy", (subject.get("top", 0) + subject.get("bottom", 0)) / 2)) < min_sep
+            for subject in subjects
+        ):
             continue
         subjects.append(detection)
         if len(subjects) >= max_subjects:
@@ -541,8 +902,26 @@ def _motion_score(prev_gray, gray, subject):
         return 0.0
 
     if subject.get("kind") == "face":
-        roi_top = top + int((bottom - top) * 0.45)
-        roi_bottom = bottom
+        face_height = bottom - top
+        # Mouth/jaw motion is a better talking signal than general movement.
+        # Subtract a portion of upper-face/camera motion so a listener moving
+        # their head, or a static avatar inside a moving layout, does not win.
+        mouth_top = top + int(face_height * 0.52)
+        mouth_bottom = top + int(face_height * 0.96)
+        control_top = top + int(face_height * 0.12)
+        control_bottom = top + int(face_height * 0.43)
+
+        mouth_prev = prev_gray[mouth_top:mouth_bottom, left:right]
+        mouth_curr = gray[mouth_top:mouth_bottom, left:right]
+        control_prev = prev_gray[control_top:control_bottom, left:right]
+        control_curr = gray[control_top:control_bottom, left:right]
+        if mouth_prev.size == 0 or mouth_curr.size == 0 or mouth_prev.shape != mouth_curr.shape:
+            return 0.0
+        mouth_motion = float(np.mean(cv2.absdiff(mouth_prev, mouth_curr)))
+        control_motion = 0.0
+        if control_prev.size and control_curr.size and control_prev.shape == control_curr.shape:
+            control_motion = float(np.mean(cv2.absdiff(control_prev, control_curr)))
+        return max(0.0, mouth_motion - (control_motion * 0.55))
     else:
         roi_top = top
         roi_bottom = top + int((bottom - top) * 0.42)
@@ -557,53 +936,164 @@ def _motion_score(prev_gray, gray, subject):
     return float(np.mean(diff))
 
 
-def _merge_switch_segments(samples, clip_duration, min_segment=1.2):
-    if not samples:
-        return []
+def _active_speaker_border_strength(frame, subject):
+    """Return confidence for a conferencing-app active-speaker rectangle.
 
-    segments = []
-    current = {
-        "start": 0.0,
-        "end": samples[0]["time"],
-        "side": samples[0]["side"],
-        "centers": [samples[0]["center"]],
-    }
+    Zoom and similar apps draw a saturated green rectangle around the current
+    speaker. Requiring both a long horizontal and vertical run avoids treating
+    ordinary green objects or a neighboring tile border as the active tile.
+    This is only a hint for an already-detected real face; camera-off tiles do
+    not become candidates merely because their border lights up.
+    """
+    if frame is None or subject.get("kind") != "face":
+        return 0.0
+    frame_h, frame_w = frame.shape[:2]
+    face_w = max(1, int(subject.get("right", 0) - subject.get("left", 0)))
+    face_h = max(1, int(subject.get("bottom", 0) - subject.get("top", 0)))
+    cx = int(subject.get("cx", 0))
+    cy = int(subject.get("cy", (subject.get("top", 0) + subject.get("bottom", 0)) / 2))
+    x1 = int(clamp(cx - (face_w * 2.5), 0, frame_w - 1))
+    x2 = int(clamp(cx + (face_w * 2.5), x1 + 1, frame_w))
+    y1 = int(clamp(cy - (face_h * 1.8), 0, frame_h - 1))
+    y2 = int(clamp(cy + (face_h * 1.5), y1 + 1, frame_h))
+    roi = frame[y1:y2, x1:x2]
+    if roi.size == 0:
+        return 0.0
+    blue = roi[:, :, 0].astype(np.float32)
+    green = roi[:, :, 1].astype(np.float32)
+    red = roi[:, :, 2].astype(np.float32)
+    green_mask = (green > 130.0) & (green > red * 1.3) & (green > blue * 1.3)
+    if not np.any(green_mask):
+        return 0.0
+    row_strength = float(np.max(np.mean(green_mask, axis=1)))
+    column_strength = float(np.max(np.mean(green_mask, axis=0)))
+    return min(row_strength, column_strength)
 
-    for sample in samples[1:]:
-        if sample["side"] == current["side"]:
-            current["end"] = sample["time"]
-            current["centers"].append(sample["center"])
-            continue
-        current["end"] = sample["time"]
-        segments.append(current)
-        current = {
-            "start": sample["time"],
-            "end": sample["time"],
-            "side": sample["side"],
-            "centers": [sample["center"]],
-        }
-    current["end"] = clip_duration
-    segments.append(current)
 
-    merged = []
-    for segment in segments:
-        duration = segment["end"] - segment["start"]
-        if merged and duration < min_segment:
-            merged[-1]["end"] = segment["end"]
-            merged[-1]["centers"].extend(segment["centers"])
-        else:
-            merged.append(segment)
+def _smart_crop_top(center_y, crop_height, frame_height, vertical_position, detected_top=None):
+    """Place a face naturally while honoring a detected tile content edge."""
+    crop_height = max(2, min(int(crop_height), int(frame_height)))
+    maximum = max(0, int(frame_height) - crop_height)
+    base = int(round(float(center_y) - (crop_height * float(vertical_position))))
+    if detected_top is not None:
+        # Matte fitting may move the window either down past a header or up
+        # above a footer.  Treat the fitted position as authoritative instead
+        # of only allowing downward movement.
+        base = int(round(float(detected_top)))
+    return int(clamp(base, 0, maximum))
 
-    return [
-        {
-            "start": round_float(segment["start"], 3),
-            "end": round_float(max(segment["end"], segment["start"] + 0.05), 3),
-            "center": int(np.median(segment["centers"])),
-            "side": segment["side"],
-        }
-        for segment in merged
-        if segment["end"] > segment["start"]
+
+def _detect_top_matte_bottom(
+    frame,
+    crop_x,
+    crop_y,
+    crop_width,
+    crop_height,
+    face_top=None,
+    return_height=False,
+):
+    """Fit a portrait crop between uniform conferencing-app matte bands.
+
+    Meeting grids often put a dark header above a tile and a dark gutter below
+    it.  Moving past only the header can expose the lower gutter, so inspect
+    both crop edges and shift the window into the visible tile content.  Face
+    headroom caps downward movement; the low-variance requirement avoids
+    treating ordinary dark backgrounds or clothing as application chrome.
+    """
+    fallback = (int(crop_y), int(crop_height)) if return_height else int(crop_y)
+    if frame is None or getattr(frame, "size", 0) == 0:
+        return fallback
+    frame_height, frame_width = frame.shape[:2]
+    x1 = int(clamp(crop_x, 0, max(0, frame_width - 1)))
+    x2 = int(clamp(crop_x + crop_width, x1 + 1, frame_width))
+    proposed_top = int(clamp(crop_y, 0, max(0, frame_height - 1)))
+    original_height = int(clamp(crop_height, 2, frame_height))
+    scan_padding = max(12, int(original_height * 0.35))
+    y1 = max(0, proposed_top - scan_padding)
+    y2 = min(frame_height, proposed_top + original_height + scan_padding)
+    if y2 - y1 < 8 or x2 - x1 < 8:
+        return fallback
+
+    roi = frame[y1:y2, x1:x2]
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    inset = max(1, int(gray.shape[1] * 0.08))
+    rows = gray[:, inset:gray.shape[1] - inset] if gray.shape[1] > inset * 2 else gray
+    color_rows = roi[:, inset:roi.shape[1] - inset] if roi.shape[1] > inset * 2 else roi
+    row_mean = np.mean(rows, axis=1)
+    row_std = np.std(rows, axis=1)
+    channel_means = np.mean(color_rows, axis=1)
+    row_saturation = np.max(channel_means, axis=1) - np.min(channel_means, axis=1)
+    # Application gutters are far more uniform than dark clothing or a dim
+    # room.  The strict variance threshold is what keeps those real image
+    # regions from being mistaken for tile chrome.
+    matte = (row_mean < 40.0) & (row_std < 8.0)
+    minimum_matte_rows = max(4, int(original_height * 0.01))
+    runs = []
+    run_start = None
+    for index, is_matte in enumerate(matte):
+        if is_matte and run_start is None:
+            run_start = index
+        if run_start is not None and (not is_matte or index == len(matte) - 1):
+            run_end = index if not is_matte else index + 1
+            if run_end - run_start >= minimum_matte_rows:
+                runs.append((y1 + run_start, y1 + run_end))
+            run_start = None
+
+    face_anchor = int(face_top) if face_top is not None else proposed_top + int(original_height * 0.35)
+    top_runs = [run for run in runs if run[1] <= face_anchor]
+    bottom_runs = [
+        run for run in runs
+        if run[0] >= face_anchor + int(original_height * 0.18)
+        and run[0] <= proposed_top + original_height + scan_padding
     ]
+    content_top = max(top_runs, key=lambda run: run[1])[1] if top_runs else None
+    content_bottom = min(bottom_runs, key=lambda run: run[0])[0] if bottom_runs else None
+
+    if content_top is not None:
+        border_rows = 0
+        while (
+            content_top - y1 < len(matte)
+            and border_rows < 12
+            and row_std[content_top - y1] < 12.0
+            and row_saturation[content_top - y1] > 60.0
+        ):
+            content_top += 1
+            border_rows += 1
+        if face_top is not None:
+            headroom = max(6, int(original_height * 0.07))
+            content_top = min(content_top, max(0, int(face_top) - headroom))
+
+    if content_bottom is not None:
+        border_rows = 0
+        while (
+            content_bottom - y1 > 0
+            and border_rows < 12
+            and row_std[content_bottom - y1 - 1] < 12.0
+            and row_saturation[content_bottom - y1 - 1] > 60.0
+        ):
+            content_bottom -= 1
+            border_rows += 1
+
+    fitted_height = original_height
+    if content_top is not None and content_bottom is not None:
+        available_height = content_bottom - content_top
+        if available_height >= int(original_height * 0.82):
+            fitted_height = min(original_height, max(2, (available_height // 2) * 2))
+
+    minimum_top = content_top if content_top is not None else 0
+    maximum_top = frame_height - fitted_height
+    if content_bottom is not None:
+        maximum_top = min(maximum_top, content_bottom - fitted_height)
+    if maximum_top < minimum_top:
+        minimum_top = max(0, maximum_top)
+    adjusted = int(clamp(proposed_top, minimum_top, max(minimum_top, maximum_top)))
+    if return_height:
+        return adjusted, fitted_height
+    return adjusted
+
+
+def _merge_switch_segments(samples, clip_duration, min_segment=1.2):
+    return merge_speaker_samples(samples, clip_duration, min_segment_sec=min_segment)
 
 
 def unique_phrase_hits(text, phrases):
@@ -650,6 +1140,12 @@ def compute_filler_ratio(text):
 
 
 def compute_confidence(seg):
+    direct_confidence = seg.get("confidence")
+    if direct_confidence is not None:
+        try:
+            return clamp01(float(direct_confidence))
+        except (TypeError, ValueError):
+            pass
     avg_logprob = seg.get("avg_logprob")
     if avg_logprob is None:
         return 0.55
@@ -840,8 +1336,37 @@ def build_rerank_breakdown(clip):
     open_loop = bool(opener_hook_hits or opener_curiosity_hits or opener_questions or controversy_hits)
     resolves_loop = bool(payoff_hits or value_hits or contrast_hits)
     clean_ending = closer.endswith((".", "!", "?")) or bool(unique_phrase_hits(closer, PAYOFF_PHRASES))
-    specificity = clamp01((len(strong_keywords) * 0.22) + (len(unique_topics) * 0.18) + (number_matches * 0.12))
     filler_penalty = clamp01((filler_ratio - 0.12) / 0.18)
+    first_token = opener.split()[0].strip("'\".,!?;:").lower() if opener.split() else ""
+    last_token = closer.split()[-1].strip("'\".,!?;:").lower() if closer.split() else ""
+    dependent_openers = {"and", "but", "because", "then", "also", "he", "she", "they", "it", "this", "that"}
+    dangling_endings = {"and", "but", "because", "so", "then", "with", "to", "of", "if"}
+    standalone_opening = clamp(
+        8.5
+        + (1.0 if opener_hook_hits or opener_questions else 0.0)
+        - (3.2 if first_token in dependent_openers else 0.0)
+        - (1.5 if weak_opener else 0.0),
+        0.0,
+        10.0,
+    )
+    complete_ending = clamp(
+        5.5
+        + (3.0 if clean_ending else 0.0)
+        + (1.0 if payoff_hits else 0.0)
+        - (3.0 if last_token in dangling_endings else 0.0),
+        0.0,
+        10.0,
+    )
+    topic_coherence = clamp(
+        5.0
+        + (2.0 if sentence_count >= 2 else 0.0)
+        + (1.5 * clamp01((unique_word_ratio - 0.42) / 0.28))
+        + (1.0 if unique_topics else 0.0)
+        - (1.5 * filler_penalty),
+        0.0,
+        10.0,
+    )
+    specificity = clamp01((len(strong_keywords) * 0.22) + (len(unique_topics) * 0.18) + (number_matches * 0.12))
     opener_keyword_weight = sum(keyword_hit_weight(kw) for kw in matched_keywords if kw in opener)
 
     hook_component = clamp(
@@ -917,6 +1442,12 @@ def build_rerank_breakdown(clip):
         "information_density": round_float(information_component),
         "production_quality": round_float(production_component),
         "clarity": round_float(clarity_component),
+        "boundary_quality": {
+            "standalone_opening": round_float(standalone_opening),
+            "complete_ending": round_float(complete_ending),
+            "topic_coherence": round_float(topic_coherence),
+            "context_dependency": round_float(10.0 - standalone_opening),
+        },
         "metrics": {
             "duration_fit": round_float(duration_fit),
             "confidence": round_float(avg_confidence),
@@ -970,8 +1501,14 @@ def analyze_visual_quality(video_path, start_time, end_time, return_details=Fals
         start_frame = int(start_time * fps)
         end_frame = int(end_time * fps)
 
-        # Sample frames (analyze every 10th frame)
-        sample_interval = max(1, int((end_frame - start_frame) / 10))
+        # Spread samples across the entire candidate.  The previous loop
+        # calculated spaced frame indexes but then read consecutive frames,
+        # which made visual scoring judge only the opening fraction.
+        sample_count = max(1, min(10, end_frame - start_frame))
+        sample_times = sorted({
+            _quantized_sample_time(float(value) / max(fps, 1.0), _SUBJECT_SAMPLE_STEP_SEC)
+            for value in np.linspace(start_frame, max(start_frame, end_frame - 1), sample_count)
+        })
 
         face_sizes = []
         brightness_values = []
@@ -979,25 +1516,29 @@ def analyze_visual_quality(video_path, start_time, end_time, return_details=Fals
         prev_frame = None
         sampled_frames = 0
 
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-
-        for i in range(start_frame, end_frame, sample_interval):
+        for frame_time in sample_times:
+            cap.set(cv2.CAP_PROP_POS_MSEC, frame_time * 1000.0)
             ret, frame = cap.read()
             if not ret:
                 break
             sampled_frames += 1
 
-            # Resize for faster processing
-            small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-            rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-
-            # 1. Face Detection
-            face_locations = face_recognition.face_locations(rgb_small)
-            if face_locations:
-                # Get largest face size
-                largest_face = max(face_locations, key=lambda f: (f[2]-f[0]) * (f[1]-f[3]))
-                face_area = (largest_face[2]-largest_face[0]) * (largest_face[1]-largest_face[3])
-                face_sizes.append(face_area)
+            # 1. Face Detection.  Use the same source-time cache as framing so
+            # overlapping candidate windows never repeat this expensive work.
+            faces = [
+                item for item in detect_frame_subjects_cached(
+                    video_path,
+                    frame_time,
+                    frame,
+                    model=None,
+                )
+                if item.get("kind") == "face"
+            ]
+            if faces:
+                largest_face = max(faces, key=lambda item: item.get("area", 0))
+                # The historical score thresholds were calibrated against a
+                # quarter-resolution face detector, whose area is 1/16 scale.
+                face_sizes.append(float(largest_face.get("area", 0)) / 16.0)
 
             # 2. Brightness/Lighting Quality
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -1152,11 +1693,19 @@ def analyze_audio_emotion(audio_path, start_time, end_time, return_details=False
         return 0, []
 
 
-def analyze_speaker_layout(video_path, start_time=0, sample_duration=3, framing_mode="auto", clip_end_time=None):
+def analyze_speaker_layout(
+    video_path,
+    start_time=0,
+    sample_duration=3,
+    framing_mode="auto",
+    clip_end_time=None,
+    clip_words=None,
+):
     """
     Detect speaker framing for shorts.
     auto: keep old behavior, stacking only when a side-by-side pair is reliable.
-    smart_switch: build a time-varying crop from lower-face/body motion.
+    smart_switch: build a time-varying crop from lower-face/body motion, using
+    diarized clip words as a learned visual-track preference when available.
     dual_stack: force a 2-up stack whenever two subjects are detectable.
     """
     framing_mode = framing_mode if framing_mode in {"auto", "smart_switch", "dual_stack"} else "auto"
@@ -1182,8 +1731,11 @@ def analyze_speaker_layout(video_path, start_time=0, sample_duration=3, framing_
         try:
             model = get_yolo_model()
         except Exception as e:
-            print(f"  ⚠️  Speaker layout model unavailable: {e}")
-            return fallback_layout
+            # Face tracking is sufficient for smart switching. YOLO remains a
+            # fallback for ordinary auto framing, but its first-run model
+            # download should never disable the on-camera face path.
+            model = None
+            print(f"  ⚠️  Person detector unavailable; continuing with face tracking: {e}")
 
         positions = []
         face_tops = []
@@ -1194,28 +1746,78 @@ def analyze_speaker_layout(video_path, start_time=0, sample_duration=3, framing_
         clip_duration = max(0.1, float((clip_end_time - start_time) if clip_end_time else sample_duration))
         analysis_duration = clip_duration if framing_mode == "smart_switch" else sample_duration
         sample_step_sec = 0.45 if framing_mode == "smart_switch" else max(5 / fps, 0.15)
-        sample_count = max(1, int(analysis_duration / sample_step_sec))
+        sample_count = max(2 if framing_mode == "smart_switch" else 1, int(analysis_duration / sample_step_sec) + 1)
         prev_gray = None
         switch_samples = []
-        last_center = None
-        last_subject_id = None
+        smart_cfg = CONFIG.get("tracking", {}).get("smart_switch", {})
+        motion_threshold = max(0.0, float(smart_cfg.get("motion_threshold", 0.8)))
+        confirmation_frames = max(1, int(smart_cfg.get("confirmation_frames", 1)))
+        switch_confirm_frames = max(1, int(smart_cfg.get("switch_confirm_frames", 2)))
+        min_switch_hold = max(0.0, float(smart_cfg.get("min_hold_sec", 1.2)))
+        min_crop_ratio = clamp(float(smart_cfg.get("min_crop_height_ratio", 0.42)), 0.2, 1.0)
+        max_crop_ratio = clamp(float(smart_cfg.get("max_crop_height_ratio", 1.0)), min_crop_ratio, 1.0)
+        crop_vertical_position = clamp(
+            float(smart_cfg.get("crop_face_vertical_position", 0.44)),
+            0.2,
+            0.8,
+        )
+        tracker = SmartSpeakerTracker(
+            width,
+            height,
+            TrackingConfig(
+                mouth_motion_threshold=motion_threshold,
+                live_min_face_samples=max(2, confirmation_frames + 1),
+                live_min_motion_hits=confirmation_frames,
+                switch_confirm_samples=switch_confirm_frames,
+                min_switch_interval_sec=min_switch_hold,
+                crop_face_height_multiplier=max(1.0, float(smart_cfg.get("crop_face_height_multiplier", 2.15))),
+                minimum_crop_height_ratio=min_crop_ratio,
+                maximum_crop_height_ratio=max_crop_ratio,
+            ),
+        ) if framing_mode == "smart_switch" else None
+        diarization_timeline = build_diarization_timeline(
+            clip_words or [],
+            clip_start=start_time,
+            clip_end=start_time + clip_duration,
+        ) if tracker is not None else []
 
         for i in range(sample_count):
             rel_time = min(i * sample_step_sec, max(0.0, analysis_duration - 0.05))
-            frame_time = start_time + rel_time
+            frame_time = _quantized_sample_time(start_time + rel_time, sample_step_sec)
+            frame_time = min(start_time + analysis_duration, max(start_time, frame_time))
+            rel_time = max(0.0, frame_time - start_time)
+            speaker_cue = diarization_cue_at_time(
+                diarization_timeline,
+                frame_time,
+                tolerance_sec=max(0.65, sample_step_sec * 1.25),
+            ) if diarization_timeline else None
+            speaker_label = speaker_cue.get("speaker") if speaker_cue else None
+            speaker_confidence = speaker_cue.get("speaker_confidence") if speaker_cue else None
             cap.set(cv2.CAP_PROP_POS_MSEC, frame_time * 1000.0)
             ret, frame = cap.read()
             if not ret:
                 break
             sampled_frames += 1
 
-            detections = detect_frame_subjects(frame, model=model)
+            detections = detect_frame_subjects_cached(video_path, frame_time, frame, model=model)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if framing_mode == "smart_switch" else None
             if not detections:
+                if tracker is not None:
+                    held_sample = tracker.update(
+                        rel_time,
+                        [],
+                        speaker_label=speaker_label,
+                        speaker_confidence=speaker_confidence,
+                    )
+                    if held_sample is not None:
+                        switch_samples.append(held_sample)
+                    prev_gray = gray
                 continue
 
             best_subject = detections[0]
-            positions.append(best_subject["cx"])
-            face_tops.append(best_subject["top"])
+            if framing_mode != "smart_switch":
+                positions.append(best_subject["cx"])
+                face_tops.append(best_subject["top"])
 
             subjects = _dedupe_subjects(detections, width)
             pair = _group_subjects_by_side(subjects, width)
@@ -1225,23 +1827,68 @@ def analyze_speaker_layout(video_path, start_time=0, sample_duration=3, framing_
                 right_centers.append(pair[-1]["cx"])
 
             if framing_mode == "smart_switch":
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                active_subject, motion = _choose_active_subject(subjects or [best_subject], prev_gray, gray, last_center)
-                if active_subject is None:
-                    active_subject = best_subject
-                if motion < 0.8 and last_center is not None:
-                    center = last_center
-                    subject_id = last_subject_id if last_subject_id is not None else 0
-                else:
-                    center = active_subject["cx"]
-                    subject_id = int(round(safe_div(center, max(width, 1)) * 1000))
-                last_center = center
-                last_subject_id = subject_id
-                switch_samples.append({
-                    "time": rel_time,
-                    "side": subject_id,
-                    "center": center,
-                })
+                tracked_subjects = []
+                for subject in subjects or [best_subject]:
+                    tracked = dict(subject)
+                    tracked.setdefault("cy", int((tracked.get("top", 0) + tracked.get("bottom", 0)) / 2))
+                    motion = _motion_score(prev_gray, gray, tracked)
+                    border_strength = _active_speaker_border_strength(frame, tracked)
+                    border_threshold = clamp(float(smart_cfg.get("active_border_min_strength", 0.25)), 0.05, 1.0)
+                    if border_strength >= border_threshold:
+                        motion = max(
+                            motion,
+                            motion_threshold + (border_strength * max(0.0, float(smart_cfg.get("active_border_motion_bonus", 6.0)))),
+                        )
+                    tracked["motion"] = motion
+                    tracked["active_border_strength"] = border_strength
+                    tracked_subjects.append(tracked)
+                active_sample = tracker.update(
+                    rel_time,
+                    tracked_subjects,
+                    speaker_label=speaker_label,
+                    speaker_confidence=speaker_confidence,
+                ) if tracker is not None else None
+                if active_sample is not None:
+                    crop_height = int(active_sample.get("crop_height", height))
+                    crop_width = max(2, int(crop_height * (9 / 16)))
+                    crop_x = int(clamp(
+                        int(active_sample.get("center_x", width // 2)) - (crop_width // 2),
+                        0,
+                        max(0, width - crop_width),
+                    ))
+                    base_top = _smart_crop_top(
+                        active_sample.get("center_y", height // 2),
+                        crop_height,
+                        height,
+                        crop_vertical_position,
+                    )
+                    nearest_face = min(
+                        (item for item in tracked_subjects if item.get("kind") == "face"),
+                        key=lambda item: (
+                            abs(float(item.get("cx", 0)) - float(active_sample.get("center_x", 0)))
+                            + abs(float(item.get("cy", 0)) - float(active_sample.get("center_y", 0)))
+                        ),
+                        default=None,
+                    )
+                    matte_top, fitted_crop_height = _detect_top_matte_bottom(
+                        frame,
+                        crop_x,
+                        base_top,
+                        crop_width,
+                        crop_height,
+                        face_top=nearest_face.get("top") if nearest_face else None,
+                        return_height=True,
+                    )
+                    active_sample["crop_height"] = fitted_crop_height
+                    active_sample["suggested_crop_height"] = fitted_crop_height
+                    active_sample["crop_top"] = _smart_crop_top(
+                        active_sample.get("center_y", height // 2),
+                        fitted_crop_height,
+                        height,
+                        crop_vertical_position,
+                        detected_top=matte_top,
+                    )
+                    switch_samples.append(active_sample)
                 prev_gray = gray
     except Exception as e:
         print(f"  ⚠️  Speaker layout analysis failed: {e}")
@@ -1257,14 +1904,34 @@ def analyze_speaker_layout(video_path, start_time=0, sample_duration=3, framing_
         split_x = int(clamp(split_x, int(width * 0.28), int(width * 0.72)))
 
         if framing_mode == "smart_switch":
-            switch_segments = _merge_switch_segments(switch_samples, clip_duration)
+            switch_segments = _merge_switch_segments(switch_samples, clip_duration, min_segment=min_switch_hold)
             if switch_segments:
                 print(f"  > Smart speaker switch timeline: {len(switch_segments)} segment(s)")
+                crop_height = int(np.median([segment.get("crop_height", height) for segment in switch_segments]))
+                center_y = int(np.median([segment.get("center_y", height // 2) for segment in switch_segments]))
+                crop_tops = [segment.get("crop_top") for segment in switch_segments if segment.get("crop_top") is not None]
+                crop_top = int(np.median(crop_tops)) if crop_tops else None
+                for segment in switch_segments:
+                    segment["center_x_ratio"] = round_float(safe_div(segment["center_x"], width), 4)
+                    segment["center_y_ratio"] = round_float(safe_div(segment["center_y"], height), 4)
+                    segment["crop_height_ratio"] = round_float(safe_div(crop_height, height), 4)
+                    segment["crop_height"] = crop_height
+                    if segment.get("crop_top") is not None:
+                        segment["crop_top_ratio"] = round_float(safe_div(segment["crop_top"], height), 4)
                 return {
                     "mode": "smart_switch",
                     "switch_segments": switch_segments,
-                    "static_center": switch_segments[0]["center"],
-                    "static_center_ratio": round_float(safe_div(switch_segments[0]["center"], width), 4),
+                    "static_center": switch_segments[0]["center_x"],
+                    "static_center_ratio": round_float(safe_div(switch_segments[0]["center_x"], width), 4),
+                    "center_y": center_y,
+                    "center_y_ratio": round_float(safe_div(center_y, height), 4),
+                    "crop_height": crop_height,
+                    "crop_height_ratio": round_float(safe_div(crop_height, height), 4),
+                    "speaker_track_map": tracker.speaker_track_map,
+                    **({
+                        "crop_top": crop_top,
+                        "crop_top_ratio": round_float(safe_div(crop_top, height), 4),
+                    } if crop_top is not None else {}),
                     "split_x": split_x,
                     "split_x_ratio": round_float(safe_div(split_x, width), 4),
                 }
@@ -1281,14 +1948,34 @@ def analyze_speaker_layout(video_path, start_time=0, sample_duration=3, framing_
         }
 
     if framing_mode == "smart_switch":
-        switch_segments = _merge_switch_segments(switch_samples, clip_duration)
+        switch_segments = _merge_switch_segments(switch_samples, clip_duration, min_segment=min_switch_hold)
         if switch_segments:
             print(f"  > Smart speaker switch timeline: {len(switch_segments)} segment(s)")
+            crop_height = int(np.median([segment.get("crop_height", height) for segment in switch_segments]))
+            center_y = int(np.median([segment.get("center_y", height // 2) for segment in switch_segments]))
+            crop_tops = [segment.get("crop_top") for segment in switch_segments if segment.get("crop_top") is not None]
+            crop_top = int(np.median(crop_tops)) if crop_tops else None
+            for segment in switch_segments:
+                segment["center_x_ratio"] = round_float(safe_div(segment["center_x"], width), 4)
+                segment["center_y_ratio"] = round_float(safe_div(segment["center_y"], height), 4)
+                segment["crop_height_ratio"] = round_float(safe_div(crop_height, height), 4)
+                segment["crop_height"] = crop_height
+                if segment.get("crop_top") is not None:
+                    segment["crop_top_ratio"] = round_float(safe_div(segment["crop_top"], height), 4)
             return {
                 "mode": "smart_switch",
                 "switch_segments": switch_segments,
-                "static_center": switch_segments[0]["center"],
-                "static_center_ratio": round_float(safe_div(switch_segments[0]["center"], width), 4),
+                "static_center": switch_segments[0]["center_x"],
+                "static_center_ratio": round_float(safe_div(switch_segments[0]["center_x"], width), 4),
+                "center_y": center_y,
+                "center_y_ratio": round_float(safe_div(center_y, height), 4),
+                "crop_height": crop_height,
+                "crop_height_ratio": round_float(safe_div(crop_height, height), 4),
+                "speaker_track_map": tracker.speaker_track_map,
+                **({
+                    "crop_top": crop_top,
+                    "crop_top_ratio": round_float(safe_div(crop_top, height), 4),
+                } if crop_top is not None else {}),
             }
 
     if framing_mode == "dual_stack":
@@ -1310,8 +1997,13 @@ def analyze_speaker_layout(video_path, start_time=0, sample_duration=3, framing_
     return fallback_layout
 
 
-def get_static_speaker_position(video_path, start_time=0, sample_duration=3):
-    return analyze_speaker_layout(video_path, start_time, sample_duration).get("static_center", 960)
+def get_static_speaker_position(video_path, start_time=0, sample_duration=3, clip_words=None):
+    return analyze_speaker_layout(
+        video_path,
+        start_time,
+        sample_duration,
+        clip_words=clip_words,
+    ).get("static_center", 960)
 
 def snap_to_sentence_end(words, target_time, window=4.0):
     """Snap clip end to the nearest sentence-ending punctuation within window seconds.
@@ -1350,31 +2042,326 @@ def extract_audio_for_analysis(video_path):
     if os.path.exists(audio_path):
         os.remove(audio_path)
     cmd = [
-        "ffmpeg", "-y", "-v", "error",
+        RUNTIME_HARDWARE["ffmpeg_bin"], "-y", "-nostdin", "-v", "error",
         "-i", video_path,
         "-vn", "-ac", "1", "-ar", "22050",
         "-f", "wav", audio_path
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     if result.returncode == 0 and os.path.exists(audio_path):
         return audio_path
     print(f"  ⚠️  Audio extraction failed: {result.stderr.strip()}")
     return None
 
 
-def analyze_transcript(video_path):
-    """Run Whisper, generate segment candidates, then rerank merged clips."""
-    print(f"🎙️ Transcribing with Whisper ({CONFIG['transcription']['model_size']})...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    _model_name = CONFIG['transcription']['model_size']
-    _model_cache = os.path.expanduser(f"~/.cache/whisper/{_model_name}.pt")
-    model = whisper.load_model(_model_cache if os.path.isfile(_model_cache) else _model_name, device=device)
-    result = model.transcribe(video_path, verbose=False, word_timestamps=True)
-    del model
-    if device == "cuda":
-        torch.cuda.empty_cache()
+def topics_for_range(topics, start, end):
+    names = []
+    for topic in topics or []:
+        if isinstance(topic, str):
+            name = topic.strip()
+            topic_start = topic_end = None
+        elif isinstance(topic, dict):
+            name = str(topic.get("topic") or topic.get("name") or "").strip()
+            try:
+                topic_start = float(topic["start"]) if topic.get("start") is not None else None
+                topic_end = float(topic["end"]) if topic.get("end") is not None else None
+            except (TypeError, ValueError):
+                topic_start = topic_end = None
+        else:
+            continue
+        if not name:
+            continue
+        if topic_start is not None and topic_end is not None and not (topic_end > start and topic_start < end):
+            continue
+        if name.casefold() not in {existing.casefold() for existing in names}:
+            names.append(name)
+    return names[:12]
+
+
+def clip_from_intelligence_window(window, segment_records, provider_topics=None):
+    start = float(window.get("start", 0.0))
+    end = float(window.get("end", start))
+    overlapping = [
+        segment for segment in segment_records
+        if float(segment.get("end", 0.0)) > start and float(segment.get("start", 0.0)) < end
+    ]
+    words = [
+        dict(word)
+        for segment in overlapping
+        for word in segment.get("words", [])
+        if float(word.get("end", 0.0)) > start and float(word.get("start", 0.0)) < end
+    ]
+    if window.get("words"):
+        words = [dict(word) for word in window["words"]]
+    words.sort(key=lambda word: (float(word.get("start", 0.0)), float(word.get("end", 0.0))))
+    text = str(window.get("text") or words_to_text(words)).strip()
+    peak = max((float(segment.get("candidate_score", 0.0)) for segment in overlapping), default=0.0)
+    reason_points = {
+        reason: float(segment.get("candidate_score", 0.0))
+        for segment in overlapping
+        for reason in segment.get("reasons", [])
+    }
+    topics = topics_for_range(provider_topics, start, end)
+    for topic in window.get("topics", []) or []:
+        value = str(topic).strip()
+        if value and value.casefold() not in {existing.casefold() for existing in topics}:
+            topics.append(value)
+    return {
+        "id": str(window.get("id") or f"candidate-{start:.3f}-{end:.3f}"),
+        "start": start,
+        "end": end,
+        "text": text.lower(),
+        "context_before": str(window.get("context_before") or "").strip(),
+        "context_after": str(window.get("context_after") or "").strip(),
+        "words": words,
+        "candidate_score": peak,
+        "score": peak,
+        "reasons": make_reason_list(reason_points),
+        "topics": topics[:12],
+        "segments": overlapping,
+    }
+
+
+def build_broad_candidate_clips(transcript, segment_records):
+    max_duration = min(float(CONFIG["selection"]["max_clip_duration"]), 75.0)
+    provider_topics = transcript.get("topics", []) if isinstance(transcript, dict) else []
+    configured_min = max(6.0, float(CONFIG["selection"]["min_clip_duration"]))
+    clips = []
+    seen = set()
+    for requested_target in (20.0, 35.0, 50.0, 70.0):
+        target_duration = min(max_duration, requested_target)
+        min_duration = min(target_duration, max(configured_min, target_duration * 0.55))
+        if target_duration < configured_min:
+            continue
+        windows = build_candidate_windows(
+            transcript,
+            target_duration_sec=target_duration,
+            stride_sec=max(5.0, target_duration * 0.5),
+            min_duration_sec=min_duration,
+            max_duration_sec=max_duration,
+        )
+        for window_index, window in enumerate(windows):
+            identity = (
+                round(float(window.get("start", 0.0)), 3),
+                round(float(window.get("end", 0.0)), 3),
+                str(window.get("text", "")).casefold(),
+            )
+            if identity in seen:
+                continue
+            seen.add(identity)
+            window = dict(window)
+            window["id"] = f"candidate-{int(target_duration):02d}-{window_index:04d}"
+            window["window_target_sec"] = target_duration
+            clips.append(clip_from_intelligence_window(window, segment_records, provider_topics))
+    return clips
+
+
+def create_gemini_proxy_chunk(video_path, start, duration):
+    """Create a small deterministic proxy that stays below Gemini inline limits."""
+    handle = tempfile.NamedTemporaryFile(prefix="gemini_proxy_", suffix=".mp4", dir=TEMP_DIR, delete=False)
+    output_path = handle.name
+    handle.close()
+    try:
+        os.remove(output_path)
+    except OSError:
+        pass
+    command = [
+        RUNTIME_HARDWARE["ffmpeg_bin"], "-y", "-nostdin", "-v", "error",
+        "-ss", str(max(0.0, start)), "-t", str(max(0.1, duration)), "-i", video_path,
+        "-map", "0:v:0", "-map", "0:a?",
+        "-vf", "scale=480:-2:force_original_aspect_ratio=decrease,fps=12",
+        "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+        "-b:v", "140k", "-maxrate", "160k", "-bufsize", "320k",
+        "-c:a", "aac", "-b:a", "32k", "-ac", "1", "-ar", "16000",
+        "-movflags", "+faststart", output_path,
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=max(180, int(duration * 2)))
+    if result.returncode != 0 or not os.path.exists(output_path):
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
+        raise RuntimeError(f"Gemini proxy creation failed: {summarize_process_error(result.stderr)}")
+    return output_path
+
+
+def analyze_with_gemini(video_path, analysis_start=0.0, analysis_end=None):
+    client = GeminiVideoClient.from_environment(
+        model=os.environ.get("VCF_GEMINI_MODEL", "gemini-3.5-flash"),
+        timeout_sec=float(os.environ.get("VCF_GEMINI_TIMEOUT_SEC", "900")),
+    )
+    source_duration = probe_duration(video_path, ffprobe_bin=RUNTIME_HARDWARE["ffprobe_bin"])
+    analysis_start = max(0.0, min(source_duration, float(analysis_start or 0.0)))
+    analysis_end = source_duration if analysis_end is None else min(source_duration, float(analysis_end))
+    duration = max(0.1, analysis_end - analysis_start)
+    print("☁️  Gemini analysis enabled: uploading one compact video/audio proxy...")
+    proxy_path = create_gemini_proxy_chunk(video_path, analysis_start, duration)
+    try:
+        results = client.analyze_media_path(proxy_path, duration_sec=duration, mime_type="video/mp4")
+        for index, result in enumerate(results):
+            result["id"] = f"gemini-{index:04d}-{result.get('id', 'moment')}"
+            result["start"] = analysis_start + float(result.get("start", 0.0))
+            result["end"] = analysis_start + float(result.get("end", result["start"] - analysis_start))
+            for word in result.get("words", []) or []:
+                word["start"] = analysis_start + float(word.get("start", 0.0))
+                word["end"] = analysis_start + float(word.get("end", word["start"] - analysis_start))
+        return results, client.model
+    finally:
+        try:
+            os.remove(proxy_path)
+        except OSError:
+            pass
+
+
+def apply_optional_viral_intelligence(
+    video_path,
+    clips,
+    segment_records,
+    transcript,
+    analysis_start=0.0,
+    analysis_end=None,
+):
+    """Apply local semantic and optional Gemini scores without making them fatal."""
+    output_scale = float(CONFIG.get("scoring", {}).get("output_scale", 15.0))
+    providers = {
+        "heuristic": {"status": "success", "provider": "hybrid_v2", "cloud": False},
+        "local_semantic": {"status": "disabled", "cloud": False},
+        "gemini": {"status": "disabled", "cloud": True},
+    }
+    provider_topics = transcript.get("topics", []) if isinstance(transcript, dict) else []
+    for index, clip in enumerate(clips):
+        clip.setdefault("id", f"candidate-{index:04d}")
+        clip["heuristic_score"] = round(float(clip.get("score", 0.0)) * (10.0 / output_scale), 3)
+        clip["topics"] = list(dict.fromkeys([
+            *clip.get("topics", []),
+            *topics_for_range(provider_topics, float(clip.get("start", 0.0)), float(clip.get("end", 0.0))),
+        ]))[:12]
+
+    semantic_by_id = {}
+    if RUNTIME_HARDWARE.get("local_semantic") and clips:
+        try:
+            client = LocalSemanticClient.from_environment(
+                timeout_sec=float(os.environ.get("VCF_LOCAL_LLM_TIMEOUT_SEC", "90"))
+            )
+            selected = select_semantic_candidates(clips, top_heuristic=60, time_diverse=20)
+            # Smaller batches fit ordinary local-model context windows and make
+            # one malformed response less likely to discard the whole rerank.
+            batch_size = max(1, int(os.environ.get("VCF_LOCAL_LLM_BATCH_SIZE", "12")))
+            for batch_start in range(0, len(selected), batch_size):
+                batch = selected[batch_start:batch_start + batch_size]
+                for item in client.rank_candidates(batch):
+                    semantic_by_id[item["candidate_id"]] = item
+            providers["local_semantic"] = {
+                "status": "success", "provider": "openai_compatible", "model": client.model,
+                "cloud": False, "scored_candidates": len(semantic_by_id),
+            }
+            print(f"🧠 Local semantic reranker scored {len(semantic_by_id)} candidate window(s)")
+        except Exception as error:
+            providers["local_semantic"] = {
+                "status": "failed", "provider": "openai_compatible", "cloud": False,
+                "fallback": "heuristic", "error": str(error)[:500],
+            }
+            print(f"  ⚠️  Local semantic reranking unavailable ({error}); using heuristic scores")
+
+    gemini_results = []
+    if RUNTIME_HARDWARE.get("gemini_analysis"):
+        try:
+            gemini_results, gemini_model = analyze_with_gemini(
+                video_path,
+                analysis_start=analysis_start,
+                analysis_end=analysis_end,
+            )
+            providers["gemini"] = {
+                "status": "success", "provider": "gemini", "model": gemini_model,
+                "cloud": True, "candidates": len(gemini_results),
+            }
+            print(f"✨ Gemini returned {len(gemini_results)} timestamped candidate moment(s)")
+        except Exception as error:
+            providers["gemini"] = {
+                "status": "failed", "provider": "gemini", "cloud": True,
+                "fallback": "local", "error": str(error)[:500],
+            }
+            print(f"  ⚠️  Gemini analysis unavailable ({error}); continuing with local analysis")
+
+    gemini_clips = []
+    for result in gemini_results:
+        gemini_clip = clip_from_intelligence_window(result, segment_records, provider_topics)
+        heuristic_score, reasons, breakdown = score_clip_candidate(gemini_clip)
+        gemini_clip.update({
+            "score": heuristic_score,
+            "heuristic_score": round(heuristic_score * (10.0 / output_scale), 3),
+            "candidate_score": gemini_clip.get("candidate_score", 0.0),
+            "reasons": list(dict.fromkeys([*result.get("reasons", []), *reasons])),
+            "score_breakdown": breakdown,
+            "gemini_score": result.get("gemini_score"),
+        })
+        gemini_clips.append(gemini_clip)
+
+    combined = [*clips, *gemini_clips]
+    for clip in combined:
+        semantic = semantic_by_id.get(str(clip.get("id")))
+        best_gemini = None
+        best_overlap = 0.0
+        if clip.get("gemini_score") is not None:
+            best_gemini = clip
+            best_overlap = 1.0
+        else:
+            for candidate in gemini_results:
+                overlap = temporal_iou(clip, candidate)
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_gemini = candidate
+            if best_overlap < 0.2:
+                best_gemini = None
+
+        semantic_score = semantic.get("semantic_score") if semantic else None
+        gemini_score = best_gemini.get("gemini_score") if best_gemini else None
+        score, weights = ensemble_score(
+            clip.get("heuristic_score", 0.0),
+            semantic_score=semantic_score,
+            gemini_score=gemini_score,
+        )
+        clip["ensemble_score"] = score
+        clip["score"] = round_float(score * (output_scale / 10.0))
+        clip["semantic_score"] = semantic_score
+        clip["gemini_score"] = gemini_score
+        clip["topics"] = list(dict.fromkeys([
+            *clip.get("topics", []),
+            *(semantic.get("topics", []) if semantic else []),
+            *(best_gemini.get("topics", []) if best_gemini else []),
+        ]))[:12]
+        clip["reasons"] = list(dict.fromkeys([
+            *(semantic.get("reasons", []) if semantic else []),
+            *(best_gemini.get("reasons", []) if best_gemini else []),
+            *clip.get("reasons", []),
+        ]))[:8]
+        breakdown = dict(clip.get("score_breakdown", {}))
+        breakdown["intelligence"] = {
+            "heuristic_score": clip.get("heuristic_score"),
+            "semantic_score": semantic_score,
+            "gemini_score": gemini_score,
+            "weights": weights,
+            "topics": clip["topics"],
+        }
+        clip["score_breakdown"] = breakdown
+        clip["intelligence_providers"] = providers
+        clip["ranking_version"] = "ensemble_v3"
+
+    if RUNTIME_HARDWARE.get("local_semantic") or RUNTIME_HARDWARE.get("gemini_analysis"):
+        combined = dedupe_temporal_candidates(combined, iou_threshold=0.65, score_key="ensemble_score")
+    return combined
+
+
+def analyze_transcript(video_path, analysis_start=0.0, analysis_end=None):
+    """Transcribe, generate broad segment candidates, then ensemble-rerank clips."""
+    result = transcript_for_analysis_range(
+        transcribe_source(video_path),
+        analysis_start=analysis_start,
+        analysis_end=analysis_end,
+    )
 
     viral_candidates = []
+    all_segment_records = []
     audio_path_for_analysis = None
     if LIBROSA_AVAILABLE:
         print("🎵 Extracting audio for emotion analysis...")
@@ -1382,11 +2369,10 @@ def analyze_transcript(video_path):
 
     print("📊 Analyzing Viral Potential (HYBRID RERANK MODE)...")
     keywords = CONFIG['keywords']
-    candidate_min_score = float(CONFIG['selection'].get('candidate_min_score', 1.8))
 
     for seg in result["segments"]:
         duration = seg["end"] - seg["start"]
-        if duration < 1.5:
+        if duration < 0.15:
             continue
 
         text = seg["text"].strip().lower()
@@ -1426,16 +2412,26 @@ def analyze_transcript(video_path):
             visual_metrics=visual_metrics,
         )
         candidate_score, reasons = score_segment_candidate(signals)
-        if candidate_score < candidate_min_score:
-            continue
 
         words = []
         for w in seg.get("words", []):
-            words.append({
+            word_record = {
                 "word": w["word"].strip(),
                 "start": w["start"],
                 "end": w["end"],
-            })
+            }
+            if w.get("confidence") is not None:
+                word_record["confidence"] = w["confidence"]
+            speaker = w.get("speaker", seg.get("speaker"))
+            if speaker is not None:
+                word_record["speaker"] = speaker
+            speaker_confidence = w.get("speaker_confidence", seg.get("speaker_confidence"))
+            if speaker_confidence is not None:
+                try:
+                    word_record["speaker_confidence"] = float(speaker_confidence)
+                except (TypeError, ValueError):
+                    pass
+            words.append(word_record)
 
         segment_record = {
             "start": seg["start"],
@@ -1446,129 +2442,123 @@ def analyze_transcript(video_path):
             "reasons": reasons,
             "signals": signals,
         }
-        viral_candidates.append({
-            "start": seg["start"],
-            "end": seg["end"],
-            "text": text,
-            "score": candidate_score,
-            "candidate_score": candidate_score,
-            "reasons": reasons,
-            "words": words,
-            "segments": [segment_record],
-        })
+        for key in ("speaker", "speaker_confidence", "speakers"):
+            if seg.get(key) is not None:
+                segment_record[key] = (
+                    list(seg[key]) if key == "speakers" and isinstance(seg[key], (list, tuple))
+                    else seg[key]
+                )
+        all_segment_records.append(segment_record)
 
     if audio_path_for_analysis and os.path.exists(audio_path_for_analysis):
         os.remove(audio_path_for_analysis)
 
+    if all_segment_records:
+        # Always start from overlapping sentence-aligned windows. Keywords and
+        # semantic providers improve ranking, but never gate candidate recall.
+        viral_candidates = build_broad_candidate_clips(result, all_segment_records)
+
     print(f"  > Found {len(viral_candidates)} candidate segments. Processing...")
-    if not viral_candidates:
-        return []
-
-    final_clips = []
-    min_dur = float(CONFIG['selection']['min_clip_duration'])
-    max_dur = float(CONFIG['selection']['max_clip_duration'])
-
-    def add_clip_or_split(clip):
-        all_words = clip.get("words", [])
-        clip["end"] = snap_to_sentence_end(all_words, clip["end"], window=3.0)
-        dur = clip["end"] - clip["start"]
-        if dur < min_dur:
-            return
-        if dur <= max_dur:
-            final_clips.append(clip)
-            return
-
-        chunk_target = min(max_dur, 45)
-        chunk_start = clip["start"]
-        words = clip.get("words", [])
-        segments = clip.get("segments", [])
-
-        while chunk_start < clip["end"]:
-            chunk_end = min(chunk_start + chunk_target, clip["end"])
-            if words and chunk_end < clip["end"]:
-                best_break = chunk_end
-                for w in words:
-                    if chunk_end - 5 <= w["end"] <= chunk_end + 5:
-                        if w["word"].rstrip().endswith((".", "!", "?")):
-                            best_break = w["end"]
-                            break
-                        best_break = w["end"]
-                chunk_end = best_break
-
-            chunk_dur = chunk_end - chunk_start
-            if chunk_dur >= min_dur:
-                chunk_words = [w for w in words if chunk_start <= w["start"] < chunk_end]
-                chunk_segments = [seg for seg in segments if seg["end"] > chunk_start and seg["start"] < chunk_end]
-                final_clips.append({
-                    "start": chunk_start,
-                    "end": chunk_end,
-                    "text": words_to_text(chunk_words) or clip["text"][:240],
-                    "score": max((seg.get("candidate_score", 0.0) for seg in chunk_segments), default=clip.get("candidate_score", 0.0)),
-                    "candidate_score": max((seg.get("candidate_score", 0.0) for seg in chunk_segments), default=clip.get("candidate_score", 0.0)),
-                    "reasons": clip.get("reasons", []),
-                    "words": chunk_words,
-                    "segments": chunk_segments or segments,
-                })
-
-            chunk_start = chunk_end
-
-    current_clip = viral_candidates[0]
-    for i in range(1, len(viral_candidates)):
-        next_seg = viral_candidates[i]
-        gap = next_seg["start"] - current_clip["end"]
-
-        if gap < 1.0:
-            current_clip["end"] = next_seg["end"]
-            current_clip["text"] += " " + next_seg["text"]
-            current_clip["candidate_score"] = max(current_clip["candidate_score"], next_seg["candidate_score"])
-            current_clip["score"] = current_clip["candidate_score"]
-            current_clip["reasons"] = make_reason_list({
-                reason: 1.0 for reason in current_clip.get("reasons", []) + next_seg.get("reasons", [])
-            })
-            if current_clip.get("words") is not None and next_seg.get("words") is not None:
-                current_clip["words"].extend(next_seg["words"])
-            current_clip.setdefault("segments", []).extend(next_seg.get("segments", []))
-        else:
-            add_clip_or_split(current_clip)
-            current_clip = next_seg
-
-    add_clip_or_split(current_clip)
+    if not viral_candidates and not RUNTIME_HARDWARE.get("gemini_analysis"):
+        return {
+            "selected": [],
+            "reserves": [],
+            "ranked_candidates": [],
+            "yield": {
+                "volume": RUNTIME_HARDWARE.get("clip_volume", "balanced"),
+                "active_speech_seconds": active_speech_duration(result.get("segments", [])),
+                "target": 0,
+                "soft_min": 0,
+                "max_clips": int(CONFIG['selection']['max_clips_to_export']),
+                "target_met": False,
+                "soft_min_met": False,
+                "stats": {},
+            },
+        }
 
     reranked_clips = []
-    for clip in final_clips:
+    for clip in viral_candidates:
         final_score, reasons, breakdown = score_clip_candidate(clip)
         clip["score"] = final_score
         clip["reasons"] = reasons
         clip["score_breakdown"] = breakdown
-        clip["ranking_version"] = "hybrid_v2"
+        clip["boundary_quality"] = breakdown.get("boundary_quality", {})
+        clip["ranking_version"] = "hybrid_v3"
         reranked_clips.append(clip)
+
+    reranked_clips = apply_optional_viral_intelligence(
+        video_path,
+        reranked_clips,
+        all_segment_records,
+        result,
+        analysis_start=analysis_start,
+        analysis_end=analysis_end,
+    )
 
     reranked_clips.sort(key=lambda x: x["score"], reverse=True)
 
-    configured_min_score = float(CONFIG['selection'].get('viral_min_score', 6.0))
-    relative_floor = float(CONFIG['selection'].get('relative_score_floor', 0.6))
-    min_top_keep = int(CONFIG['selection'].get('min_top_clips_to_keep', 3))
-    effective_min_score = configured_min_score
-    if len(reranked_clips) >= min_top_keep:
-        effective_min_score = max(configured_min_score, reranked_clips[0]["score"] * relative_floor)
-
-    filtered_clips = [clip for clip in reranked_clips if clip["score"] >= effective_min_score]
-    used_threshold_fallback = False
-    if not filtered_clips and reranked_clips:
-        filtered_clips = reranked_clips[:min(min_top_keep, len(reranked_clips))]
-        used_threshold_fallback = True
-
     max_clips = int(CONFIG['selection']['max_clips_to_export'])
-    filtered_clips = filtered_clips[:max_clips]
+    yield_batch = build_yield_batch(
+        reranked_clips,
+        active_speech_duration(result.get("segments", [])),
+        volume=RUNTIME_HARDWARE.get("clip_volume", "balanced"),
+        max_clips=max_clips,
+        exact_count=RUNTIME_HARDWARE.get("target_clips"),
+    )
+    cluster_metadata = {}
+    for cluster in yield_batch.get("clusters", []):
+        representative_id = str(cluster.get("representative_id") or "")
+        for variant_rank, candidate_id in enumerate(cluster.get("candidate_ids", []), start=1):
+            cluster_metadata[str(candidate_id)] = {
+                "cluster_id": cluster.get("cluster_id"),
+                "variant_rank": variant_rank,
+                "duplicate_of": None if variant_rank == 1 else representative_id,
+            }
+    for clip in reranked_clips:
+        candidate_id = str(clip.get("yield_id") or clip.get("id") or "")
+        if candidate_id in cluster_metadata:
+            clip.update(cluster_metadata[candidate_id])
+    for clip in reranked_clips:
+        clip["confidence_tier"] = confidence_tier(clip.get("score"))
+    for clip in [*yield_batch["selected"], *yield_batch["reserves"]]:
+        clip["confidence_tier"] = clip.get("yield_tier") or confidence_tier(clip.get("score"))
+        clip["yield_plan"] = {
+            "volume": yield_batch["volume"],
+            "target": yield_batch["target"],
+            "soft_min": yield_batch["soft_min"],
+            "active_speech_minutes": yield_batch["active_speech_minutes"],
+        }
 
-    print(f"  > Exporting {len(filtered_clips)} clips from {len(viral_candidates)} candidates")
-    print(f"  > Candidate threshold: {candidate_min_score:.1f} | Final threshold: {effective_min_score:.1f}")
-    if used_threshold_fallback:
-        print(f"  > No clips cleared the final threshold; keeping top {len(filtered_clips)} fallback clip(s)")
-    if filtered_clips:
-        print(f"  > Score range: {filtered_clips[0]['score']:.1f} (top) to {filtered_clips[-1]['score']:.1f} (lowest)")
+    stats = yield_batch["stats"]
+    print(
+        f"  > Shorts yield: {len(yield_batch['selected'])} primary +"
+        f" {len(yield_batch['reserves'])} reserve from {stats['deduped']} diverse candidates"
+    )
+    print(
+        f"  > Volume={yield_batch['volume']} | target={yield_batch['target']} |"
+        f" soft minimum={yield_batch['soft_min']} | cap={yield_batch['max_clips']}"
+    )
+    print(
+        "  > Confidence tiers:"
+        f" {stats['tiers']['best']} best, {stats['tiers']['strong']} strong,"
+        f" {stats['tiers']['review']} worth reviewing"
+    )
+    if yield_batch["selected"]:
+        selected_scores = [float(clip.get("score", 0.0)) for clip in yield_batch["selected"]]
+        print(f"  > Selected score range: {max(selected_scores):.1f} to {min(selected_scores):.1f}")
 
-    return filtered_clips
+    return {
+        "selected": yield_batch["selected"],
+        "reserves": yield_batch["reserves"],
+        "ranked_candidates": reranked_clips,
+        "yield": {
+            key: yield_batch[key]
+            for key in (
+                "volume", "active_speech_seconds", "active_speech_minutes", "target",
+                "soft_min", "max_clips", "exact", "target_met", "soft_min_met", "stats",
+            )
+        },
+    }
 
 def summarize_process_error(stderr, max_lines=3):
     if not stderr:
@@ -1584,7 +2574,7 @@ def summarize_process_error(stderr, max_lines=3):
 def probe_video_stream(video_path):
     try:
         probe = subprocess.run([
-            "ffprobe", "-v", "error",
+            RUNTIME_HARDWARE["ffprobe_bin"], "-v", "error",
             "-select_streams", "v:0",
             "-show_entries", "stream=color_transfer,pix_fmt",
             "-of", "json",
@@ -1621,33 +2611,36 @@ def sanitize_video_for_processing(video_path):
     sanitize_filter = build_preprocess_filter(video_path)
 
     common_flags = [
-        "ffmpeg", "-y", "-v", "error",
+        "-y", "-v", "error",
         "-probesize", "100M", "-analyzeduration", "100M",
         "-fflags", "+discardcorrupt+genpts",
         "-err_detect", "ignore_err",
         "-i", video_path,
-        "-vf", sanitize_filter,
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
-        "-movflags", "+faststart",
     ]
 
-    # Try GPU first, fall back to CPU
-    for encoder, label in [("h264_nvenc", "GPU"), ("libx264", "CPU")]:
-        preset = "p3" if encoder == "h264_nvenc" else "fast"
-        cmd = common_flags + ["-c:v", encoder, "-preset", preset, safe_path]
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0:
-                print(f"✅ Sanitized input ready ({label})")
-                return safe_path
-            summary = summarize_process_error(result.stderr)
-            if summary:
-                print(f"⚠️  {label} sanitize failed: {summary}")
-            else:
-                print(f"⚠️  {label} sanitize failed, trying next...")
-        except Exception as e:
-            print(f"⚠️  {label} sanitize error: {e}")
+    def build_command(backend):
+        vf = encoder_filter(sanitize_filter, backend, False)
+        return [
+            *build_encoder_command_prefix(backend),
+            *common_flags,
+            "-vf", vf,
+            *encoder_args(backend, False, "proxy"),
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+            safe_path,
+        ]
+
+    try:
+        backend, _ = run_with_encoder_fallback(
+            build_command,
+            configured_video_backends(False),
+            context="Input sanitization",
+        )
+        RUNTIME_HARDWARE["resolved_video_encoder"] = backend
+        print(f"✅ Sanitized input ready ({backend})")
+        return safe_path
+    except RuntimeError as error:
+        print(f"⚠️  Sanitization failed: {error}")
 
     print("⚠️  All sanitization attempts failed, using original input")
     return video_path
@@ -1673,145 +2666,1762 @@ def create_proxy(video_path):
 
     proxy_filter = build_preprocess_filter(video_path)
     common_args = [
-        "ffmpeg", "-y", "-v", "error",
+        "-y", "-v", "error",
         "-i", video_path,
-        "-vf", proxy_filter,
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
-    ]
-    attempts = [
-        ("GPU", ["-c:v", "h264_nvenc", "-preset", "p1"]),
-        ("CPU", ["-c:v", "libx264", "-preset", "fast", "-crf", "18"]),
     ]
 
-    for label, encoder_args in attempts:
-        cmd = common_args + encoder_args + [proxy_path]
-        try:
-            subprocess.run(cmd, check=True)
-            if label != "GPU":
-                print(f"  ⚠️  Proxy fallback in use: {label}")
-            return proxy_path
-        except subprocess.CalledProcessError as e:
-            print(f"  ⚠️  {label} proxy encode failed (exit {e.returncode}), trying next...")
+    def build_command(backend):
+        vf = encoder_filter(proxy_filter, backend, False)
+        return [
+            *build_encoder_command_prefix(backend),
+            *common_args,
+            "-vf", vf,
+            *encoder_args(backend, False, "proxy"),
+            "-c:a", "aac",
+            proxy_path,
+        ]
+
+    try:
+        backend, _ = run_with_encoder_fallback(
+            build_command,
+            configured_video_backends(False),
+            context="Analysis proxy",
+        )
+        RUNTIME_HARDWARE["resolved_video_encoder"] = backend
+        return proxy_path
+    except RuntimeError as error:
+        print(f"  ⚠️  Proxy creation failed: {error}")
 
     print("  ⚠️  Proxy creation failed, using source directly")
     return video_path
 
 def get_render_settings(is_hdr, src_w, src_h, target_upscale=False):
-    """Return ffmpeg flags for HDR/SDR and Resolution"""
-    flags = []
-    
-    # 1. Resolution (Upscale or Keep)
+    """Return encoder candidates and output resolution."""
     target_w, target_h = src_w, src_h
     if target_upscale:
-        # If active upscale requested and source is less than 8K
         if src_w < 7680:
             target_w = 7680
             target_h = int(target_w * (src_h / src_w))
             print(f"  > Upscaling to 8K ({target_w}x{target_h})...")
-            
-    # 2. HDR/SDR Encoding
+
     if is_hdr:
         print("  > Detected HDR Source. Preserving 10-bit Color.")
-        # HEVC Main10 for HDR
-        flags.extend([
-            "-c:v", "hevc_nvenc", 
-            "-pix_fmt", "p010le", 
-            "-profile:v", "main10",
-            "-preset", "p6", # High quality
-            "-b:v", "50M"    # High bitrate for 8K/4K
-        ])
-        # Pass through color metadata (assuming PQ/BT2020 for now as common standard)
-        flags.extend([
-            "-color_primaries", "bt2020",
-            "-color_trc", "smpte2084",
-            "-colorspace", "bt2020nc"
-        ])
     else:
         print("  > Detected SDR Source. Standard Export.")
-        flags.extend([
-            "-c:v", "h264_nvenc", 
-            "-preset", "p6",
-            "-b:v", "20M"
-        ])
-        
-    return flags, target_w, target_h
 
-def render_longform(source_path, segments, output_path, is_hdr, width, height, do_upscale, audio_fade_sec=0.03):
-    print(f"🎬 Rendering Long Form Master: {output_path}")
-    
-    # Generate Encoder Flags
-    enc_flags, tgt_w, tgt_h = get_render_settings(is_hdr, width, height, do_upscale)
-    
-    # Extract segments to temp files then concat
-    segment_files = []
-    print("  > Extracting segments (High Quality)...")
-    if audio_fade_sec > 0:
-        print(f"  > Applying {int(audio_fade_sec * 1000)}ms audio fades at segment joins")
-    
-    for i, (start, end) in enumerate(segments):
-        duration = max(end - start, 0.0)
-        if duration <= 0.01:
+    return configured_video_backends(is_hdr), target_w, target_h
+
+
+_LONGFORM_TRANSITIONS = {
+    "dissolve": "dissolve",
+    "fade_black": "fadeblack",
+    "fade_white": "fadewhite",
+    "wipe_left": "wipeleft",
+    "slide_left": "slideleft",
+}
+
+
+def _normalize_longform_transitions(creative, segments):
+    """Validate transition requests and clamp overlap to adjacent program."""
+    output = []
+    seen_joins = set()
+    join_count = max(0, len(segments) - 1)
+    for raw in (creative or {}).get("transitions", []) or []:
+        if not isinstance(raw, dict):
             continue
-        seg_file = os.path.join(TEMP_DIR, f"lf_seg_{i:04d}.mp4")
-        
-        # Scaling filter
-        vf_chain = []
-        if tgt_w != width:
-             vf_chain.append(f"scale={tgt_w}:{tgt_h}:flags=lanczos")
-        
-        # If HDR, ensure pixel format is respected if scaling
-        if is_hdr and vf_chain:
-             vf_chain.append("format=p010le")
+        try:
+            join_index = int(raw.get("joinIndex"))
+        except (TypeError, ValueError):
+            continue
+        transition_type = str(raw.get("type") or "cut")
+        if join_index < 0 or join_index >= join_count or join_index in seen_joins:
+            continue
+        if transition_type != "cut" and transition_type not in _LONGFORM_TRANSITIONS:
+            continue
+        left_duration = max(0.0, float(segments[join_index][1]) - float(segments[join_index][0]))
+        right_duration = max(0.0, float(segments[join_index + 1][1]) - float(segments[join_index + 1][0]))
+        maximum = min(2.0, left_duration * 0.45, right_duration * 0.45)
+        duration = 0.0
+        if transition_type != "cut":
+            if maximum < 0.08:
+                continue
+            duration = clamp(float(raw.get("duration", 0.35)), 0.08, maximum)
+        maximum_audio_offset = min(2.0, left_duration * 0.45, right_duration * 0.45)
+        audio_offset = clamp(
+            float(raw.get("audioOffsetSec", 0.0)),
+            -maximum_audio_offset,
+            maximum_audio_offset,
+        )
+        if transition_type == "cut" and abs(audio_offset) < 0.001:
+            continue
+        output.append({
+            **raw,
+            "joinIndex": join_index,
+            "type": transition_type,
+            "ffmpegKind": _LONGFORM_TRANSITIONS.get(transition_type),
+            "duration": round(duration, 3),
+            "audioOffsetSec": round(audio_offset, 3),
+        })
+        seen_joins.add(join_index)
+    return sorted(output, key=lambda item: item["joinIndex"])
 
-        vf_flag = ["-vf", ",".join(vf_chain)] if vf_chain else []
-        af_flag = []
-        fade_duration = min(audio_fade_sec, max((duration / 2.0) - 0.005, 0.0))
-        if fade_duration > 0:
-            fade_out_start = max(duration - fade_duration, 0.0)
-            af_flag = [
-                "-af",
-                ",".join([
-                    f"afade=t=in:st=0:d={fade_duration:.3f}",
-                    f"afade=t=out:st={fade_out_start:.3f}:d={fade_duration:.3f}",
-                ]),
-            ]
 
-        cmd = [
-            "ffmpeg", "-y", "-v", "error",
-            "-ss", str(start), "-t", str(duration),
-            "-i", source_path,
-            *vf_flag,
-            *af_flag,
-            *enc_flags,
-            "-c:a", "aac", "-b:a", "192k",
-            seg_file
+def _longform_transition_durations(transitions, segment_count):
+    durations = [0.0] * max(0, int(segment_count) - 1)
+    for transition in transitions or []:
+        join_index = int(transition.get("joinIndex", -1))
+        if 0 <= join_index < len(durations):
+            durations[join_index] = max(0.0, float(transition.get("duration", 0.0)))
+    return durations
+
+
+def _edited_time_for_source(source_time, segments, transition_durations=None):
+    elapsed = 0.0
+    point = float(source_time)
+    overlaps = list(transition_durations or [])
+    for index, (start, end) in enumerate(segments):
+        if point < start:
+            return elapsed
+        if point <= end:
+            return elapsed + max(0.0, point - start)
+        elapsed += end - start
+        if index < len(overlaps):
+            elapsed -= max(0.0, float(overlaps[index]))
+    return elapsed
+
+
+def _longform_creative_timeline(creative, segments, transitions=None):
+    creative = dict(creative or {})
+    transition_durations = _longform_transition_durations(transitions, len(segments))
+    for key in ("titles", "broll", "adjustmentLayers"):
+        output = []
+        for raw in creative.get(key, []) or []:
+            if not isinstance(raw, dict):
+                continue
+            source_start = float(raw.get("start", 0.0))
+            start = _edited_time_for_source(raw.get("start", 0.0), segments, transition_durations)
+            end = _edited_time_for_source(
+                raw.get("end", raw.get("start", 0.0)),
+                segments,
+                transition_durations,
+            )
+            if end - start < 0.05:
+                continue
+            item = {
+                **raw,
+                "sourceStart": round(source_start, 3),
+                "start": round(start, 3),
+                "end": round(end, 3),
+            }
+            if key == "broll":
+                item["keyframes"] = [
+                    {
+                        **keyframe,
+                        "time": round(
+                            _edited_time_for_source(
+                                keyframe.get("time", source_start),
+                                segments,
+                                transition_durations,
+                            ),
+                            3,
+                        ),
+                    }
+                    for keyframe in raw.get("keyframes", []) or []
+                    if isinstance(keyframe, dict)
+                ]
+            output.append(item)
+        creative[key] = output
+    captions = dict(creative.get("captions") or {})
+    caption_cues = []
+    for raw in captions.get("cues", []) or []:
+        if not isinstance(raw, dict):
+            continue
+        start = _edited_time_for_source(raw.get("start", 0.0), segments, transition_durations)
+        end = _edited_time_for_source(raw.get("end", raw.get("start", 0.0)), segments, transition_durations)
+        if end - start >= 0.05 and str(raw.get("text") or "").strip():
+            caption_cues.append({**raw, "start": round(start, 3), "end": round(end, 3)})
+    captions["cues"] = caption_cues
+    creative["captions"] = captions
+    audio = dict(creative.get("audio") or {})
+    audio["keyframes"] = [
+        {
+            **keyframe,
+            "time": round(
+                _edited_time_for_source(
+                    keyframe.get("time", 0.0),
+                    segments,
+                    transition_durations,
+                ),
+                3,
+            ),
+        }
+        for keyframe in audio.get("keyframes", []) or []
+        if isinstance(keyframe, dict)
+    ]
+    creative["audio"] = audio
+    multicam = dict(creative.get("multicam") or {})
+    multicam_cuts = []
+    for raw in multicam.get("cuts", []) or []:
+        if not isinstance(raw, dict):
+            continue
+        source_start = float(raw.get("start", 0.0))
+        start = _edited_time_for_source(source_start, segments, transition_durations)
+        end = _edited_time_for_source(raw.get("end", source_start), segments, transition_durations)
+        if end - start >= 0.05:
+            multicam_cuts.append({
+                **raw,
+                "sourceStart": round(source_start, 3),
+                "start": round(start, 3),
+                "end": round(end, 3),
+            })
+    multicam["cuts"] = multicam_cuts
+    creative["multicam"] = multicam
+    creative["transitions"] = list(transitions or [])
+    creative["outputDuration"] = max(
+        0.0,
+        sum(float(end) - float(start) for start, end in segments) - sum(transition_durations),
+    )
+    return creative
+
+
+def _longform_export_size(preset, width, height, delivery=None):
+    preset = str(preset or "source")
+    delivery = dict(delivery or {})
+    aspect = str(delivery.get("aspect") or "source")
+    if aspect == "1:1":
+        edge = 2160 if preset == "youtube_4k" else 1080
+        return edge, edge
+    if aspect == "9:16":
+        return (2160, 3840) if preset == "youtube_4k" else (1080, 1920)
+    if aspect == "16:9":
+        return (3840, 2160) if preset == "youtube_4k" else (1920, 1080)
+    if preset in {"youtube_1080p", "podcast"}:
+        return 1920, 1080
+    if preset == "youtube_4k":
+        return 3840, 2160
+    return int(width), int(height)
+
+
+def _ffmpeg_filter_path(file_path):
+    return str(file_path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
+def _ffmpeg_color(value, fallback):
+    normalized = str(value or "").strip().lstrip("#")
+    if not re.fullmatch(r"[0-9a-fA-F]{6}", normalized):
+        normalized = str(fallback).strip().lstrip("#")
+    return f"0x{normalized.upper()}"
+
+
+def _ass_color(value, fallback, alpha="00"):
+    normalized = str(value or "").strip().lstrip("#")
+    if not re.fullmatch(r"[0-9a-fA-F]{6}", normalized):
+        normalized = str(fallback).strip().lstrip("#")
+    red, green, blue = normalized[0:2], normalized[2:4], normalized[4:6]
+    return f"&H{alpha}{blue}{green}{red}"
+
+
+def _ass_timestamp(value):
+    total_centiseconds = max(0, int(round(float(value) * 100)))
+    hours, remainder = divmod(total_centiseconds, 360000)
+    minutes, remainder = divmod(remainder, 6000)
+    seconds, centiseconds = divmod(remainder, 100)
+    return f"{hours}:{minutes:02d}:{seconds:02d}.{centiseconds:02d}"
+
+
+def _write_longform_ass(path_value, captions, width, height):
+    cues = [
+        cue for cue in captions.get("cues", []) or []
+        if cue.get("text") and float(cue.get("end", 0.0)) > float(cue.get("start", 0.0))
+    ]
+    if not cues:
+        return None
+    position = str(captions.get("position") or "bottom")
+    alignment = {"top": 8, "center": 5}.get(position, 2)
+    margin_v = int(height * (0.08 if position != "center" else 0.0))
+    font_size = max(18, min(96, int(float(captions.get("fontSize", 44)))))
+    primary = _ass_color(captions.get("textColor"), "#FFFFFF")
+    back = _ass_color(captions.get("backgroundColor"), "#09090B", alpha="48")
+    with open(path_value, "w", encoding="utf-8") as handle:
+        handle.write(
+            "[Script Info]\n"
+            "ScriptType: v4.00+\n"
+            f"PlayResX: {int(width)}\n"
+            f"PlayResY: {int(height)}\n"
+            "ScaledBorderAndShadow: yes\n\n"
+            "[V4+ Styles]\n"
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+            "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, "
+            "ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, "
+            "MarginR, MarginV, Encoding\n"
+            f"Style: Caption,DejaVu Sans,{font_size},{primary},{primary},&HCC000000,{back},"
+            f"-1,0,0,0,100,100,0,0,3,1,0,{alignment},80,80,{margin_v},1\n\n"
+            "[Events]\n"
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+        )
+        for cue in cues:
+            text = str(cue.get("text") or "").replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}")
+            text = text.replace("\r", " ").replace("\n", r"\N")
+            speaker = str(cue.get("speaker") or "").strip()
+            if speaker:
+                text = f"{speaker}: {text}"
+            handle.write(
+                f"Dialogue: 0,{_ass_timestamp(cue['start'])},{_ass_timestamp(cue['end'])},"
+                f"Caption,,0,0,0,,{text}\n"
+            )
+    return path_value
+
+
+def _longform_keyframe_expression(keyframes, field, fallback):
+    points = []
+    for item in keyframes or []:
+        try:
+            points.append((float(item.get("time", 0.0)), float(item.get(field, fallback))))
+        except (TypeError, ValueError):
+            continue
+    points.sort(key=lambda item: item[0])
+    if not points:
+        return f"{float(fallback):.6f}"
+    expression = f"{points[-1][1]:.6f}"
+    for index in range(len(points) - 2, -1, -1):
+        start_t, start_value = points[index]
+        end_t, end_value = points[index + 1]
+        duration = max(0.001, end_t - start_t)
+        interpolation = (
+            f"{start_value:.6f}+({end_value - start_value:.6f})*"
+            f"clip((t-{start_t:.6f})/{duration:.6f},0,1)"
+        )
+        expression = f"if(lt(t,{end_t:.6f}),{interpolation},{expression})"
+    first_t, first_value = points[0]
+    return f"if(lt(t,{first_t:.6f}),{first_value:.6f},{expression})"
+
+
+def _longform_atempo_chain(rate):
+    rate = clamp(float(rate), 0.05, 16.0)
+    values = []
+    while rate < 0.5 - 1e-6:
+        values.append(0.5)
+        rate /= 0.5
+    while rate > 2.0 + 1e-6:
+        values.append(2.0)
+        rate /= 2.0
+    values.append(rate)
+    return [f"atempo={value:.8f}" for value in values if abs(value - 1.0) > 1e-6]
+
+
+def _longform_speed_segments(clip):
+    source_start = max(0.0, float(clip.get("sourceStart", 0.0)))
+    source_end = max(source_start + 0.02, float(clip.get("sourceEnd", source_start + 0.02)))
+    source_duration = source_end - source_start
+    speed = dict(clip.get("speed") or {})
+    base_rate = clamp(float(speed.get("rate", 1.0)), 0.05, 16.0)
+    keyframes = []
+    for item in speed.get("keyframes", []) or []:
+        try:
+            source_time = clamp(float(item.get("sourceTime", 0.0)), 0.0, source_duration)
+            item_rate = clamp(float(item.get("speed", base_rate)), 0.05, 16.0)
+        except (TypeError, ValueError):
+            continue
+        if 0.001 < source_time < source_duration - 0.001:
+            keyframes.append((source_time, item_rate))
+    keyframes.sort(key=lambda value: value[0])
+    boundaries = [0.0, *[item[0] for item in keyframes], source_duration]
+    segments = []
+    current_rate = base_rate
+    keyframe_index = 0
+    for index in range(len(boundaries) - 1):
+        relative_start = boundaries[index]
+        relative_end = boundaries[index + 1]
+        if index > 0 and keyframe_index < len(keyframes):
+            current_rate = keyframes[keyframe_index][1]
+            keyframe_index += 1
+        if relative_end - relative_start > 0.001:
+            segments.append((
+                source_start + relative_start,
+                source_start + relative_end,
+                current_rate,
+            ))
+    return segments or [(source_start, source_end, base_rate)]
+
+
+def _append_longform_sequence_video(
+    filters,
+    input_index,
+    clip,
+    *,
+    prefix,
+    target_w,
+    target_h,
+    frame_rate,
+):
+    timeline_start = max(0.0, float(clip.get("timelineStart", 0.0)))
+    timeline_end = max(timeline_start + 0.02, float(clip.get("timelineEnd", timeline_start + 0.02)))
+    timeline_duration = timeline_end - timeline_start
+    speed = dict(clip.get("speed") or {})
+    segments = _longform_speed_segments(clip)
+    segment_inputs = []
+    if len(segments) > 1:
+        labels = [f"{prefix}raw{index}" for index in range(len(segments))]
+        filters.append(
+            f"[{input_index}:v]split={len(labels)}"
+            + "".join(f"[{label}]" for label in labels)
+        )
+        segment_inputs = labels
+    else:
+        segment_inputs = [f"{input_index}:v"]
+    segment_labels = []
+    for index, ((source_start, source_end, rate), source_label) in enumerate(zip(segments, segment_inputs)):
+        output_label = f"{prefix}seg{index}"
+        filters.append(
+            f"[{source_label}]trim=start={source_start:.6f}:end={source_end:.6f},"
+            f"setpts=(PTS-STARTPTS)/{rate:.8f}[{output_label}]"
+        )
+        segment_labels.append(output_label)
+    if len(segment_labels) > 1:
+        joined = f"{prefix}joined"
+        filters.append(
+            "".join(f"[{label}]" for label in segment_labels)
+            + f"concat=n={len(segment_labels)}:v=1:a=0[{joined}]"
+        )
+        working = joined
+    else:
+        working = segment_labels[0]
+    if speed.get("reverse"):
+        reversed_label = f"{prefix}reverse"
+        filters.append(f"[{working}]reverse[{reversed_label}]")
+        working = reversed_label
+    if speed.get("freeze"):
+        freeze_at = clamp(float(speed.get("freezeAt", 0.0)), 0.0, max(0.0, float(clip.get("sourceEnd", 0.0)) - float(clip.get("sourceStart", 0.0))))
+        frozen = f"{prefix}freeze"
+        source_time = max(0.0, float(clip.get("sourceStart", 0.0)) + freeze_at)
+        filters.append(
+            f"[{input_index}:v]trim=start={source_time:.6f}:duration={max(0.034, 1.0 / max(1.0, frame_rate)):.6f},"
+            f"setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration={timeline_duration:.6f},"
+            f"trim=duration={timeline_duration:.6f}[{frozen}]"
+        )
+        working = frozen
+    else:
+        fitted_duration = f"{prefix}duration"
+        filters.append(
+            f"[{working}]tpad=stop_mode=clone:stop_duration={timeline_duration:.6f},"
+            f"trim=duration={timeline_duration:.6f},setpts=PTS-STARTPTS[{fitted_duration}]"
+        )
+        working = fitted_duration
+    if speed.get("opticalFlow"):
+        interpolated = f"{prefix}flow"
+        filters.append(
+            f"[{working}]minterpolate=fps={frame_rate:.6f}:mi_mode=mci:mc_mode=aobmc:"
+            f"me_mode=bidir:vsbmc=1[{interpolated}]"
+        )
+        working = interpolated
+    stabilization = dict(clip.get("stabilization") or {})
+    if stabilization.get("enabled"):
+        stabilized = f"{prefix}stabilized"
+        radius = int(clamp(float(stabilization.get("strength", 12)), 1, 64))
+        # FFmpeg's deshake filter only accepts search radii in multiples of 16.
+        radius = max(16, min(64, ((radius + 15) // 16) * 16))
+        filters.append(
+            f"[{working}]deshake=rx={radius}:ry={radius}:edge=mirror:search=less[{stabilized}]"
+        )
+        working = stabilized
+    chroma = dict(clip.get("chromaKey") or {})
+    if chroma.get("enabled"):
+        keyed = f"{prefix}keyed"
+        key_color = _ffmpeg_color(chroma.get("color"), "#00FF00")
+        similarity = clamp(float(chroma.get("similarity", 0.18)), 0.01, 1.0)
+        blend = clamp(float(chroma.get("blend", 0.08)), 0.0, 1.0)
+        filters.append(
+            f"[{working}]chromakey=color={key_color}:similarity={similarity:.5f}:blend={blend:.5f},"
+            f"format=rgba[{keyed}]"
+        )
+        working = keyed
+    fit = str(clip.get("fit") or "cover")
+    if fit == "contain":
+        layout = (
+            f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease:flags=lanczos,"
+            f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
+        )
+    elif fit == "stretch":
+        layout = f"scale={target_w}:{target_h}:flags=lanczos"
+    elif fit == "native":
+        layout = "null"
+    else:
+        layout = (
+            f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase:flags=lanczos,"
+            f"crop={target_w}:{target_h}"
+        )
+    transformed = f"{prefix}transformed"
+    scale = clamp(float(clip.get("scale", 1.0)), 0.05, 8.0)
+    rotation = clamp(float(clip.get("rotation", 0.0)), -360.0, 360.0)
+    opacity = clamp(float(clip.get("opacity", 1.0)), 0.0, 1.0)
+    visual_filters = [layout] if layout != "null" else []
+    if abs(scale - 1.0) > 1e-6:
+        visual_filters.append(f"scale=iw*{scale:.6f}:ih*{scale:.6f}:flags=lanczos")
+    if abs(rotation) > 1e-6:
+        visual_filters.append(
+            f"rotate={rotation:.6f}*PI/180:ow=rotw(iw):oh=roth(ih):c=none"
+        )
+    visual_filters.append("format=rgba")
+    if opacity < 0.9999:
+        visual_filters.append(f"colorchannelmixer=aa={opacity:.6f}")
+    fade_in = clamp(float(clip.get("fadeIn", 0.0)), 0.0, timeline_duration / 2.0)
+    fade_out = clamp(float(clip.get("fadeOut", 0.0)), 0.0, timeline_duration / 2.0)
+    transition_in = dict(clip.get("transitionIn") or {})
+    transition_out = dict(clip.get("transitionOut") or {})
+    if transition_in.get("type") != "cut":
+        fade_in = max(fade_in, clamp(float(transition_in.get("duration", 0.0)), 0.0, timeline_duration / 2.0))
+    if transition_out.get("type") != "cut":
+        fade_out = max(fade_out, clamp(float(transition_out.get("duration", 0.0)), 0.0, timeline_duration / 2.0))
+    if fade_in > 0.001:
+        visual_filters.append(f"fade=t=in:st=0:d={fade_in:.6f}:alpha=1")
+    if fade_out > 0.001:
+        visual_filters.append(
+            f"fade=t=out:st={max(0.0, timeline_duration - fade_out):.6f}:d={fade_out:.6f}:alpha=1"
+        )
+    visual_filters.append(f"setpts=PTS-STARTPTS+{timeline_start:.6f}/TB")
+    filters.append(f"[{working}]{','.join(visual_filters)}[{transformed}]")
+    return transformed
+
+
+def _append_longform_sequence_audio(filters, input_index, clip, *, prefix):
+    timeline_start = max(0.0, float(clip.get("timelineStart", 0.0)))
+    timeline_end = max(timeline_start + 0.02, float(clip.get("timelineEnd", timeline_start + 0.02)))
+    timeline_duration = timeline_end - timeline_start
+    speed = dict(clip.get("speed") or {})
+    segments = _longform_speed_segments(clip)
+    segment_inputs = []
+    if len(segments) > 1:
+        labels = [f"{prefix}araw{index}" for index in range(len(segments))]
+        filters.append(
+            f"[{input_index}:a]asplit={len(labels)}"
+            + "".join(f"[{label}]" for label in labels)
+        )
+        segment_inputs = labels
+    else:
+        segment_inputs = [f"{input_index}:a"]
+    segment_labels = []
+    for index, ((source_start, source_end, rate), source_label) in enumerate(zip(segments, segment_inputs)):
+        output_label = f"{prefix}aseg{index}"
+        chain = [
+            f"atrim=start={source_start:.6f}:end={source_end:.6f}",
+            "asetpts=PTS-STARTPTS",
+            "aresample=48000",
         ]
-        subprocess.run(cmd, check=True)
-        segment_files.append(seg_file)
+        if speed.get("pitchPreserve", True):
+            chain.extend(_longform_atempo_chain(rate))
+        elif abs(rate - 1.0) > 1e-6:
+            chain.extend([f"asetrate=48000*{rate:.8f}", "aresample=48000"])
+        filters.append(f"[{source_label}]{','.join(chain)}[{output_label}]")
+        segment_labels.append(output_label)
+    if len(segment_labels) > 1:
+        joined = f"{prefix}ajoined"
+        filters.append(
+            "".join(f"[{label}]" for label in segment_labels)
+            + f"concat=n={len(segment_labels)}:v=0:a=1[{joined}]"
+        )
+        working = joined
+    else:
+        working = segment_labels[0]
+    if speed.get("reverse"):
+        reversed_label = f"{prefix}areverse"
+        filters.append(f"[{working}]areverse[{reversed_label}]")
+        working = reversed_label
+    volume_db = clamp(float(clip.get("volumeDb", 0.0)), -60.0, 24.0)
+    fade_in = clamp(float(clip.get("fadeIn", 0.0)), 0.0, timeline_duration / 2.0)
+    fade_out = clamp(float(clip.get("fadeOut", 0.0)), 0.0, timeline_duration / 2.0)
+    finish_filters = [
+        f"apad=pad_dur={timeline_duration:.6f}",
+        f"atrim=duration={timeline_duration:.6f}",
+        "asetpts=PTS-STARTPTS",
+    ]
+    if abs(volume_db) > 0.001:
+        finish_filters.append(f"volume={volume_db:.6f}dB")
+    if fade_in > 0.001:
+        finish_filters.append(f"afade=t=in:st=0:d={fade_in:.6f}")
+    if fade_out > 0.001:
+        finish_filters.append(
+            f"afade=t=out:st={max(0.0, timeline_duration - fade_out):.6f}:d={fade_out:.6f}"
+        )
+    delay_ms = max(0, int(round(timeline_start * 1000)))
+    finish_filters.append(f"adelay={delay_ms}:all=1")
+    output = f"{prefix}audio"
+    filters.append(f"[{working}]{','.join(finish_filters)}[{output}]")
+    return output
 
-    if not segment_files:
+
+def _append_longform_privacy_masks(filters, current_video, clip, *, prefix, target_w, target_h):
+    for index, mask in enumerate(clip.get("masks", []) or []):
+        if not mask.get("enabled", True):
+            continue
+        start = max(0.0, float(clip.get("timelineStart", 0.0)))
+        end = max(start + 0.02, float(clip.get("timelineEnd", start + 0.02)))
+        keyframes = mask.get("keyframes", []) or []
+        x_expression = _longform_keyframe_expression(keyframes, "x", mask.get("x", 0.25))
+        y_expression = _longform_keyframe_expression(keyframes, "y", mask.get("y", 0.25))
+        width = clamp(float(mask.get("width", 0.25)), 0.005, 1.0)
+        height = clamp(float(mask.get("height", 0.25)), 0.005, 1.0)
+        pixel_w = max(2, int(round(target_w * width)))
+        pixel_h = max(2, int(round(target_h * height)))
+        enable = f"between(t,{start:.6f},{end:.6f})"
+        effect = str(mask.get("effect") or "blur")
+        if effect == "color":
+            output = f"{prefix}maskcolor{index}"
+            fill_color = _ffmpeg_color(mask.get("fillColor"), "#000000")
+            filters.append(
+                f"[{current_video}]drawbox=x='iw*({x_expression})':y='ih*({y_expression})':"
+                f"w={pixel_w}:h={pixel_h}:color={fill_color}@0.92:t=fill:"
+                f"enable='{enable}'[{output}]"
+            )
+            current_video = output
+            continue
+        base = f"{prefix}maskbase{index}"
+        work = f"{prefix}maskwork{index}"
+        patch = f"{prefix}maskpatch{index}"
+        output = f"{prefix}masked{index}"
+        filters.append(f"[{current_video}]split=2[{base}][{work}]")
+        crop = (
+            f"crop={pixel_w}:{pixel_h}:"
+            f"x='clip(iw*({x_expression})\\,0\\,iw-{pixel_w})':"
+            f"y='clip(ih*({y_expression})\\,0\\,ih-{pixel_h})'"
+        )
+        strength = clamp(float(mask.get("strength", 18.0)), 0.0, 100.0)
+        if effect == "mosaic":
+            small_w = max(2, int(round(pixel_w / max(3.0, strength / 2.0))))
+            small_h = max(2, int(round(pixel_h / max(3.0, strength / 2.0))))
+            effect_filter = (
+                f"scale={small_w}:{small_h}:flags=neighbor,"
+                f"scale={pixel_w}:{pixel_h}:flags=neighbor"
+            )
+        elif effect == "opacity":
+            effect_filter = f"colorchannelmixer=aa={clamp(1.0 - strength / 100.0, 0.0, 1.0):.6f}"
+        else:
+            effect_filter = f"gblur=sigma={clamp(strength, 0.1, 60.0):.6f}:steps=2"
+        filters.append(f"[{work}]{crop},{effect_filter}[{patch}]")
+        filters.append(
+            f"[{base}][{patch}]overlay="
+            f"x='W*({x_expression})':y='H*({y_expression})':"
+            f"eof_action=pass:enable='{enable}'[{output}]"
+        )
+        current_video = output
+    return current_video
+
+
+def _longform_title_x(alignment, *, start, end, animation, x=None, width=None, scale=1.0):
+    if x is not None and width is not None:
+        left = clamp(float(x), 0.0, 0.95)
+        box_width = clamp(float(width), 0.12, 1.0)
+        inset = 0.016 * clamp(float(scale), 0.4, 2.5)
+        if alignment == "right":
+            target = f"w*{min(0.995, left + box_width - inset):.6f}-text_w"
+            offscreen = "w+40"
+        elif alignment == "center":
+            target = f"w*{min(1.0, left + box_width / 2.0):.6f}-text_w/2"
+            offscreen = "-text_w-40" if left + box_width / 2.0 < 0.5 else "w+40"
+        else:
+            target = f"w*{min(0.995, left + inset):.6f}"
+            offscreen = "-text_w-40"
+    elif alignment == "right":
+        target = "w*0.92-text_w"
+        offscreen = "w+40"
+    elif alignment == "center":
+        return "(w-text_w)/2"
+    else:
+        target = "w*0.08"
+        offscreen = "-text_w-40"
+    if animation != "slide":
+        return target
+    entry = 0.28
+    exit_duration = 0.22
+    return (
+        f"if(lt(t,{start + entry:.3f}),"
+        f"{offscreen}+({target}-({offscreen}))*(t-{start:.3f})/{entry:.3f},"
+        f"if(gt(t,{end - exit_duration:.3f}),"
+        f"{target}+({offscreen}-({target}))*(t-{end - exit_duration:.3f})/{exit_duration:.3f},"
+        f"{target}))"
+    )
+
+
+def _longform_title_alpha(start, end, animation):
+    if animation != "fade":
+        return None
+    fade = min(0.28, max(0.08, (end - start) / 4.0))
+    return (
+        f"if(lt(t,{start + fade:.3f}),"
+        f"max(0,min(1,(t-{start:.3f})/{fade:.3f})),"
+        f"if(gt(t,{end - fade:.3f}),"
+        f"max(0,min(1,({end:.3f}-t)/{fade:.3f})),1))"
+    )
+
+
+def apply_longform_creative_finish(
+    joined_path,
+    output_path,
+    *,
+    creative,
+    width,
+    height,
+    is_hdr,
+    backends,
+    work_dir,
+    normalize_audio=False,
+    target_lufs=-14.0,
+    limiter_db=-1.5,
+    denoise=False,
+    segment_files=None,
+    segment_durations=None,
+    audio_segment_files=None,
+):
+    """Composite transitions, graphics, cutaways, color, music, and audio."""
+    titles = [item for item in creative.get("titles", []) if item.get("text")]
+    broll = [item for item in creative.get("broll", []) if item.get("path") and os.path.exists(item.get("path"))]
+    transitions = [
+        item for item in creative.get("transitions", [])
+        if item.get("ffmpegKind") or abs(float(item.get("audioOffsetSec", 0.0))) >= 0.001
+    ]
+    adjustments = [item for item in creative.get("adjustmentLayers", []) if float(item.get("end", 0.0)) > float(item.get("start", 0.0))]
+    captions = dict(creative.get("captions") or {})
+    sequence = dict(creative.get("renderSequence") or creative.get("sequence") or {})
+    sequence_tracks = list(sequence.get("tracks", []) or []) if sequence.get("enabled") else []
+    video_tracks = [
+        track for track in sequence_tracks
+        if track.get("kind") == "video" and not track.get("hidden")
+    ]
+    audio_tracks = [
+        track for track in sequence_tracks
+        if track.get("kind") == "audio" and not track.get("muted")
+    ]
+    if any(track.get("solo") for track in video_tracks):
+        video_tracks = [track for track in video_tracks if track.get("solo")]
+    if any(track.get("solo") for track in audio_tracks):
+        audio_tracks = [track for track in audio_tracks if track.get("solo")]
+    selected_video_track_ids = {str(track.get("id")) for track in video_tracks}
+    selected_audio_track_ids = {str(track.get("id")) for track in audio_tracks}
+    sequence_entries = []
+    for track in sorted(sequence_tracks, key=lambda item: float(item.get("order", 0.0))):
+        track_id = str(track.get("id"))
+        selected = (
+            (track.get("kind") == "video" and track_id in selected_video_track_ids)
+            or (track.get("kind") == "audio" and track_id in selected_audio_track_ids)
+        )
+        if not selected:
+            continue
+        for clip in track.get("clips", []) or []:
+            if not clip.get("enabled", True):
+                continue
+            clip_copy = dict(clip)
+            clip_copy["volumeDb"] = clamp(
+                float(clip_copy.get("volumeDb", 0.0)) + float(track.get("volumeDb", 0.0)),
+                -60.0,
+                24.0,
+            )
+            sequence_entries.append((track, clip_copy))
+    sequence_video_entries = [
+        (track, clip) for track, clip in sequence_entries
+        if track.get("kind") == "video" and (clip.get("path") or clip.get("sourceType") == "generator")
+    ]
+    sequence_audio_entries = [
+        (track, clip) for track, clip in sequence_entries
+        if (
+            track.get("kind") == "audio"
+            or (track.get("kind") == "video" and clip.get("includeAudio"))
+        )
+        and clip.get("path")
+    ]
+    multicam = dict(creative.get("multicam") or {})
+    angles_by_id = {
+        str(item.get("id")): item
+        for item in multicam.get("angles", []) or []
+        if item.get("path") and os.path.exists(item.get("path"))
+    }
+    multicam_cuts = [
+        (item, angles_by_id.get(str(item.get("angleId"))))
+        for item in multicam.get("cuts", []) or []
+        if angles_by_id.get(str(item.get("angleId")))
+        and float(item.get("end", 0.0)) > float(item.get("start", 0.0))
+    ]
+    segment_files = list(segment_files or [])
+    segment_durations = [float(value) for value in (segment_durations or [])]
+    audio_segment_files = list(audio_segment_files or [])
+    uses_transition_graph = bool(
+        transitions
+        and len(segment_files) > 1
+        and len(segment_files) == len(segment_durations)
+    )
+    uses_separate_audio_segments = bool(
+        uses_transition_graph
+        and len(audio_segment_files) == len(segment_files)
+    )
+    music_path = creative.get("musicPath")
+    audio_mix = dict(creative.get("audio") or {})
+    if audio_mix.get("musicMuted") or (music_path and not os.path.exists(music_path)):
+        music_path = None
+    target_w, target_h = _longform_export_size(
+        creative.get("exportPreset"),
+        width,
+        height,
+        creative.get("delivery"),
+    )
+    color = dict(creative.get("color") or {})
+    color_workflow = dict(creative.get("colorWorkflow") or {})
+    delivery_is_hdr = bool(
+        is_hdr
+        or str((color_workflow.get("management") or {}).get("outputSpace") or "rec709") in {"hdr10", "hlg"}
+    )
+    color_group_by_clip = {}
+    for group in color_workflow.get("groups", []) or []:
+        for clip_id in group.get("clipIds", []) or []:
+            color_group_by_clip[str(clip_id)] = dict(group.get("grade") or {})
+    exposure = clamp(float(color.get("exposure", 0.0)), -0.5, 0.5)
+    contrast = clamp(float(color.get("contrast", 1.0)), 0.25, 2.0)
+    saturation = clamp(float(color.get("saturation", 1.0)), 0.0, 3.0)
+    vibrance = clamp(float(color.get("vibrance", 0.0)), -1.0, 1.0)
+    gamma = clamp(float(color.get("gamma", 1.0)), 0.35, 3.0)
+    highlights = clamp(float(color.get("highlights", 0.0)), -1.0, 1.0)
+    shadows = clamp(float(color.get("shadows", 0.0)), -1.0, 1.0)
+    temperature = clamp(float(color.get("temperature", 0.0)), -1.0, 1.0)
+    tint = clamp(float(color.get("tint", 0.0)), -1.0, 1.0)
+    sharpen = clamp(float(color.get("sharpen", 0.0)), 0.0, 1.5)
+    lut_path = color.get("lutPath")
+    if lut_path and not os.path.exists(lut_path):
+        lut_path = None
+    color_active = (
+        abs(exposure) > 0.0001
+        or abs(contrast - 1.0) > 0.0001
+        or abs(saturation - 1.0) > 0.0001
+        or abs(vibrance) > 0.0001
+        or abs(gamma - 1.0) > 0.0001
+        or abs(highlights) > 0.0001
+        or abs(shadows) > 0.0001
+        or abs(temperature) > 0.0001
+        or abs(tint) > 0.0001
+        or sharpen > 0.0001
+        or bool(lut_path)
+        or bool(color_workflow.get("management"))
+    )
+    audio_mix_active = bool(
+        abs(float(audio_mix.get("dialogueGainDb", 0.0))) > 0.001
+        or abs(float(audio_mix.get("masterGainDb", 0.0))) > 0.001
+        or abs(float(audio_mix.get("pan", 0.0))) > 0.001
+        or any(abs(float(audio_mix.get(key, 0.0))) > 0.001 for key in ("eqLowDb", "eqMidDb", "eqHighDb"))
+        or audio_mix.get("compressor")
+        or audio_mix.get("deEsser")
+        or audio_mix.get("noiseGate")
+        or audio_mix.get("dialogueMuted")
+        or audio_mix.get("keyframes")
+        or any(item.get("useAudio") for item, _angle in multicam_cuts)
+    )
+    needs_video_filter = bool(
+        uses_transition_graph
+        or titles
+        or broll
+        or sequence_video_entries
+        or sequence.get("mode") == "replace"
+        or multicam_cuts
+        or adjustments
+        or (captions.get("enabled") and captions.get("burnIn") and captions.get("cues"))
+        or color_active
+        or target_w != width
+        or target_h != height
+    )
+    needs_audio_filter = bool(
+        normalize_audio
+        or denoise
+        or music_path
+        or audio_mix_active
+        or sequence_audio_entries
+        or sequence.get("mode") == "replace"
+    )
+
+    if not needs_video_filter and not needs_audio_filter:
+        shutil.move(joined_path, output_path)
+        return RUNTIME_HARDWARE.get("resolved_video_encoder") or "cpu"
+
+    input_args = []
+    next_input_index = 0
+    audio_segment_input_base = None
+    if uses_transition_graph:
+        for segment_file in segment_files:
+            input_args.extend(["-i", segment_file])
+        next_input_index += len(segment_files)
+        if uses_separate_audio_segments:
+            audio_segment_input_base = next_input_index
+            for audio_segment_file in audio_segment_files:
+                input_args.extend(["-i", audio_segment_file])
+            next_input_index += len(audio_segment_files)
+    else:
+        input_args.extend(["-i", joined_path])
+        next_input_index = 1
+    sequence_inputs = []
+    still_extensions = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
+    for track, clip in sequence_entries:
+        clip_path = clip.get("path")
+        if clip_path:
+            if os.path.splitext(str(clip_path))[1].lower() in still_extensions:
+                input_args.extend(["-loop", "1"])
+            input_args.extend(["-i", clip_path])
+            sequence_inputs.append((next_input_index, track, clip))
+            next_input_index += 1
+        elif clip.get("sourceType") == "generator":
+            sequence_inputs.append((None, track, clip))
+    multicam_inputs = []
+    for item, angle in multicam_cuts:
+        input_args.extend(["-i", angle["path"]])
+        multicam_inputs.append((next_input_index, item, angle))
+        next_input_index += 1
+    broll_inputs = []
+    for item in broll:
+        input_args.extend(["-stream_loop", "-1", "-i", item["path"]])
+        broll_inputs.append((next_input_index, item))
+        next_input_index += 1
+    music_input_index = None
+    if music_path:
+        music_input_index = next_input_index
+        input_args.extend(["-stream_loop", "-1", "-i", music_path])
+        next_input_index += 1
+
+    font_path = os.path.join(_SCRIPT_DIR, "dashboard", "public", "fonts", "DejaVuSans-Bold.ttf")
+    title_files = []
+    for index, title in enumerate(titles):
+        title_file = os.path.join(work_dir, f"title_{index:03d}.txt")
+        with open(title_file, "w", encoding="utf-8") as handle:
+            handle.write(str(title.get("text", "")))
+        subtitle_file = None
+        if str(title.get("subtitle") or "").strip():
+            subtitle_file = os.path.join(work_dir, f"title_{index:03d}_subtitle.txt")
+            with open(subtitle_file, "w", encoding="utf-8") as handle:
+                handle.write(str(title.get("subtitle", "")))
+        title_files.append((title_file, subtitle_file))
+    caption_file = None
+    if captions.get("enabled") and captions.get("burnIn"):
+        caption_file = _write_longform_ass(
+            os.path.join(work_dir, "captions.ass"),
+            captions,
+            target_w,
+            target_h,
+        )
+
+    def build_command(backend):
+        filters = []
+        if uses_transition_graph:
+            for index in range(len(segment_files)):
+                filters.append(f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS[vin{index}]")
+                audio_input_index = (
+                    audio_segment_input_base + index
+                    if audio_segment_input_base is not None
+                    else index
+                )
+                filters.append(
+                    f"[{audio_input_index}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+                    f"asettb=AVTB,asetpts=PTS-STARTPTS[ain{index}]"
+                )
+            transition_by_join = {
+                int(item["joinIndex"]): item
+                for item in transitions
+                if 0 <= int(item.get("joinIndex", -1)) < len(segment_files) - 1
+            }
+            video_source = "vin0"
+            audio_source = "ain0"
+            elapsed = segment_durations[0]
+            for index in range(1, len(segment_files)):
+                transition = transition_by_join.get(index - 1)
+                next_video = f"vjoin{index}"
+                next_audio = f"ajoin{index}"
+                if transition is None or not transition.get("ffmpegKind"):
+                    filters.append(
+                        f"[{video_source}][vin{index}]concat=n=2:v=1:a=0[{next_video}]"
+                    )
+                else:
+                    duration = float(transition["duration"])
+                    offset = max(0.01, elapsed - duration)
+                    filters.append(
+                        f"[{video_source}][vin{index}]xfade=transition={transition['ffmpegKind']}:"
+                        f"duration={duration:.3f}:offset={offset:.3f}[{next_video}]"
+                    )
+                if transition is None or not transition.get("ffmpegKind"):
+                    filters.append(
+                        f"[{audio_source}][ain{index}]concat=n=2:v=0:a=1[{next_audio}]"
+                    )
+                    elapsed += segment_durations[index]
+                else:
+                    duration = float(transition["duration"])
+                    filters.append(
+                        f"[{audio_source}][ain{index}]acrossfade=d={duration:.3f}:"
+                        f"c1=tri:c2=tri[{next_audio}]"
+                    )
+                    elapsed += segment_durations[index] - duration
+                video_source = next_video
+                audio_source = next_audio
+        else:
+            video_source = "0:v"
+            audio_source = "0:a"
+
+        current_video = "vbase"
+        base_filters = ["setpts=PTS-STARTPTS"]
+        if target_w != width or target_h != height:
+            delivery = dict(creative.get("delivery") or {})
+            if delivery.get("reframe") == "smart_crop":
+                base_filters.append(
+                    f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase:flags=lanczos"
+                )
+                base_filters.append(f"crop={target_w}:{target_h}")
+            elif delivery.get("reframe") == "stretch":
+                base_filters.append(f"scale={target_w}:{target_h}:flags=lanczos")
+            else:
+                base_filters.append(
+                    f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease:flags=lanczos"
+                )
+                base_filters.append(f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black")
+        if sequence.get("mode") == "replace":
+            base_filters.append("drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill")
+        filters.append(f"[{video_source}]{','.join(base_filters)}[{current_video}]")
+
+        sequence_audio_labels = []
+        sequence_input_by_clip = {
+            (str(track.get("id")), str(clip.get("id"))): input_index
+            for input_index, track, clip in sequence_inputs
+        }
+        video_sequence_rows = [
+            (input_index, track, clip)
+            for input_index, track, clip in sequence_inputs
+            if track.get("kind") == "video"
+        ]
+        video_sequence_rows.sort(key=lambda row: (
+            float(row[1].get("order", 0.0)),
+            float(row[2].get("timelineStart", 0.0)),
+        ))
+        for index, (input_index, track, clip) in enumerate(video_sequence_rows):
+            timeline_start = max(0.0, float(clip.get("timelineStart", 0.0)))
+            timeline_end = max(timeline_start + 0.02, float(clip.get("timelineEnd", timeline_start + 0.02)))
+            prefix = f"sequence{index}"
+            if input_index is None:
+                clip_label = f"{prefix}generator"
+                generator_color = _ffmpeg_color(clip.get("generatorColor"), "#111827")
+                filters.append(
+                    f"color=c={generator_color}:s={target_w}x{target_h}:r={float(sequence.get('frameRate', 30.0)):.6f}:"
+                    f"d={timeline_end - timeline_start:.6f},"
+                    f"setpts=PTS-STARTPTS+{timeline_start:.6f}/TB[{clip_label}]"
+                )
+            else:
+                clip_label = _append_longform_sequence_video(
+                    filters,
+                    input_index,
+                    clip,
+                    prefix=prefix,
+                    target_w=target_w,
+                    target_h=target_h,
+                    frame_rate=float(sequence.get("frameRate", 30.0)),
+                )
+            group_grade = color_group_by_clip.get(str(clip.get("id")))
+            if group_grade:
+                group_filters = []
+                group_lut = group_grade.get("lutPath")
+                if group_lut and os.path.exists(group_lut):
+                    group_filters.append(f"lut3d=file='{_ffmpeg_filter_path(group_lut)}'")
+                group_exposure = clamp(float(group_grade.get("exposure", 0.0)), -0.5, 0.5)
+                group_contrast = clamp(float(group_grade.get("contrast", 1.0)), 0.25, 2.0)
+                group_saturation = clamp(float(group_grade.get("saturation", 1.0)), 0.0, 3.0)
+                group_gamma = clamp(float(group_grade.get("gamma", 1.0)), 0.35, 3.0)
+                if (
+                    abs(group_exposure) > 0.0001
+                    or abs(group_contrast - 1.0) > 0.0001
+                    or abs(group_saturation - 1.0) > 0.0001
+                    or abs(group_gamma - 1.0) > 0.0001
+                ):
+                    group_filters.append(
+                        f"eq=brightness={group_exposure:.5f}:contrast={group_contrast:.5f}:"
+                        f"saturation={group_saturation:.5f}:gamma={group_gamma:.5f}"
+                    )
+                if group_filters:
+                    group_label = f"{prefix}groupgrade"
+                    filters.append(f"[{clip_label}]{','.join(group_filters)}[{group_label}]")
+                    clip_label = group_label
+            next_video = f"vsequence{index}"
+            x = clamp(float(clip.get("x", 0.0)), -1.0, 1.0)
+            y = clamp(float(clip.get("y", 0.0)), -1.0, 1.0)
+            filters.append(
+                f"[{current_video}][{clip_label}]overlay="
+                f"x='(W-w)/2+{x:.6f}*W*0.5':y='(H-h)/2+{y:.6f}*H*0.5':"
+                f"eof_action=pass:enable='between(t,{timeline_start:.6f},{timeline_end:.6f})'"
+                f"[{next_video}]"
+            )
+            current_video = _append_longform_privacy_masks(
+                filters,
+                next_video,
+                clip,
+                prefix=prefix,
+                target_w=target_w,
+                target_h=target_h,
+            )
+
+        for index, (track, clip) in enumerate(sequence_audio_entries):
+            input_index = sequence_input_by_clip.get((str(track.get("id")), str(clip.get("id"))))
+            if input_index is None:
+                continue
+            sequence_audio_labels.append(_append_longform_sequence_audio(
+                filters,
+                input_index,
+                clip,
+                prefix=f"sequenceaudio{index}",
+            ))
+
+        for index, (input_index, item, angle) in enumerate(multicam_inputs):
+            duration = max(0.05, float(item["end"]) - float(item["start"]))
+            source_start = max(
+                0.0,
+                float(item.get("sourceStart", item["start"])) + float(angle.get("offsetSec", 0.0)),
+            )
+            angle_label = f"multicam{index}"
+            next_video = f"vmulticam{index}"
+            filters.append(
+                f"[{input_index}:v]trim=start={source_start:.3f}:duration={duration:.3f},"
+                f"setpts=PTS-STARTPTS+{float(item['start']):.3f}/TB,"
+                f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase:flags=lanczos,"
+                f"crop={target_w}:{target_h}[{angle_label}]"
+            )
+            filters.append(
+                f"[{current_video}][{angle_label}]overlay=0:0:eof_action=pass:"
+                f"enable='between(t,{float(item['start']):.3f},{float(item['end']):.3f})'[{next_video}]"
+            )
+            current_video = next_video
+
+        for index, (input_index, item) in enumerate(broll_inputs):
+            duration = max(0.05, float(item["end"]) - float(item["start"]))
+            overlay_label = f"broll{index}"
+            next_video = f"vb{index}"
+            source_offset = max(0.0, float(item.get("sourceOffset", 0.0)))
+            crop_left = clamp(float(item.get("cropLeft", 0.0)), 0.0, 0.45)
+            crop_top = clamp(float(item.get("cropTop", 0.0)), 0.0, 0.45)
+            crop_right = clamp(float(item.get("cropRight", 0.0)), 0.0, 0.45)
+            crop_bottom = clamp(float(item.get("cropBottom", 0.0)), 0.0, 0.45)
+            crop_width = max(0.1, 1.0 - crop_left - crop_right)
+            crop_height = max(0.1, 1.0 - crop_top - crop_bottom)
+            layout = str(item.get("layout") or "cover")
+            if layout == "contain":
+                layout_filters = (
+                    f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease:flags=lanczos,"
+                    f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
+                )
+            elif layout == "pip":
+                layout_filters = (
+                    f"scale={max(2, int(target_w * 0.38))}:-2:force_original_aspect_ratio=decrease:flags=lanczos"
+                )
+            else:
+                layout_filters = (
+                    f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase:flags=lanczos,"
+                    f"crop={target_w}:{target_h}"
+                )
+            keyframes = item.get("keyframes", []) or []
+            x_expression = _longform_keyframe_expression(keyframes, "x", item.get("x", 0.0))
+            y_expression = _longform_keyframe_expression(keyframes, "y", item.get("y", 0.0))
+            scale_expression = _longform_keyframe_expression(keyframes, "scale", item.get("scale", 1.0))
+            rotation_expression = _longform_keyframe_expression(keyframes, "rotation", item.get("rotation", 0.0))
+            opacity = clamp(float(item.get("opacity", 1.0)), 0.0, 1.0)
+            filters.append(
+                f"[{input_index}:v]trim=start={source_offset:.3f}:duration={duration:.3f},"
+                f"setpts=PTS-STARTPTS+{float(item['start']):.3f}/TB,"
+                f"crop=iw*{crop_width:.6f}:ih*{crop_height:.6f}:iw*{crop_left:.6f}:ih*{crop_top:.6f},"
+                f"{layout_filters},"
+                f"scale=w='iw*({scale_expression})':h='ih*({scale_expression})':eval=frame,"
+                f"rotate=angle='({rotation_expression})*PI/180':ow=rotw(iw):oh=roth(ih):c=none,"
+                f"format=rgba,colorchannelmixer=aa={opacity:.4f}[{overlay_label}]"
+            )
+            filters.append(
+                f"[{current_video}][{overlay_label}]overlay="
+                f"x='(W-w)/2+({x_expression})*W*0.5':"
+                f"y='(H-h)/2+({y_expression})*H*0.5':eof_action=pass:"
+                f"enable='between(t,{float(item['start']):.3f},{float(item['end']):.3f})'[{next_video}]"
+            )
+            current_video = next_video
+
+        grade_filters = []
+        management = dict(color_workflow.get("management") or {})
+        input_space = str(management.get("inputSpace") or "auto")
+        output_space = str(management.get("outputSpace") or "rec709")
+        tone_map = str(management.get("toneMap") or "mobius")
+        peak_nits = clamp(float(management.get("peakNits", 1000.0)), 100.0, 10000.0)
+        if input_space in {"hlg", "pq"} and output_space == "rec709":
+            transfer_in = "arib-std-b67" if input_space == "hlg" else "smpte2084"
+            tonemap_name = tone_map if tone_map in {"hable", "mobius", "reinhard"} else "mobius"
+            grade_filters.extend([
+                f"zscale=transferin={transfer_in}:primariesin=bt2020:matrixin=bt2020nc:"
+                f"transfer=linear:npl={peak_nits:.3f}",
+                "format=gbrpf32le",
+                f"tonemap=tonemap={tonemap_name}:desat=0",
+                "zscale=transfer=bt709:primaries=bt709:matrix=bt709:range=tv",
+                "format=yuv420p",
+            ])
+        if lut_path:
+            grade_filters.append(f"lut3d=file='{_ffmpeg_filter_path(lut_path)}'")
+        if (
+            abs(exposure) > 0.0001
+            or abs(contrast - 1.0) > 0.0001
+            or abs(saturation - 1.0) > 0.0001
+            or abs(gamma - 1.0) > 0.0001
+        ):
+            grade_filters.append(
+                f"eq=brightness={exposure:.4f}:contrast={contrast:.4f}:"
+                f"saturation={saturation:.4f}:gamma={gamma:.4f}"
+            )
+        if abs(vibrance) > 0.0001:
+            grade_filters.append(f"vibrance=intensity={vibrance:.4f}")
+        if abs(shadows) > 0.0001 or abs(highlights) > 0.0001:
+            black = clamp(max(0.0, shadows) * 0.035, 0.0, 0.12)
+            quarter = clamp(0.25 + shadows * 0.12, 0.02, 0.48)
+            three_quarter = clamp(0.75 + highlights * 0.12, 0.52, 0.98)
+            white = clamp(1.0 + min(0.0, highlights) * 0.04, 0.88, 1.0)
+            grade_filters.append(
+                f"curves=all='0/{black:.5f} 0.25/{quarter:.5f} "
+                f"0.75/{three_quarter:.5f} 1/{white:.5f}'"
+            )
+        if abs(temperature) > 0.0001:
+            warmth = temperature * 0.16
+            grade_filters.append(
+                f"colorbalance=rm={warmth:.4f}:bm={-warmth:.4f}:"
+                f"rh={warmth * 0.55:.4f}:bh={-warmth * 0.55:.4f}:pl=1"
+            )
+        if abs(tint) > 0.0001:
+            green_shift = tint * 0.12
+            grade_filters.append(
+                f"colorbalance=gm={green_shift:.4f}:gh={green_shift * 0.55:.4f}:pl=1"
+            )
+        if sharpen > 0.0001:
+            grade_filters.append(f"unsharp=5:5:{sharpen:.3f}:5:5:0")
+        if output_space in {"hdr10", "hlg"} and input_space not in {"hlg", "pq"}:
+            transfer_out = "smpte2084" if output_space == "hdr10" else "arib-std-b67"
+            grade_filters.extend([
+                "zscale=transfer=linear:transferin=bt709:primariesin=bt709:matrixin=bt709",
+                "format=gbrpf32le",
+                f"zscale=transfer={transfer_out}:primaries=bt2020:matrix=bt2020nc",
+                "format=yuv420p10le",
+            ])
+        if management.get("legalize"):
+            grade_filters.append("limiter=min=16:max=235")
+        if grade_filters:
+            filters.append(f"[{current_video}]{','.join(grade_filters)}[vgraded]")
+            current_video = "vgraded"
+
+        for index, layer in enumerate(adjustments):
+            start = float(layer["start"])
+            end = float(layer["end"])
+            enable = f"between(t,{start:.3f},{end:.3f})"
+            layer_filters = []
+            layer_exposure = clamp(float(layer.get("exposure", 0.0)), -0.3, 0.3)
+            layer_contrast = clamp(float(layer.get("contrast", 1.0)), 0.5, 1.5)
+            layer_saturation = clamp(float(layer.get("saturation", 1.0)), 0.0, 2.0)
+            if (
+                abs(layer_exposure) > 0.0001
+                or abs(layer_contrast - 1.0) > 0.0001
+                or abs(layer_saturation - 1.0) > 0.0001
+            ):
+                layer_filters.append(
+                    f"eq=brightness={layer_exposure:.4f}:contrast={layer_contrast:.4f}:"
+                    f"saturation={layer_saturation:.4f}:enable='{enable}'"
+                )
+            layer_temperature = clamp(float(layer.get("temperature", 0.0)), -1.0, 1.0)
+            if abs(layer_temperature) > 0.0001:
+                warmth = layer_temperature * 0.16
+                layer_filters.append(
+                    f"colorbalance=rm={warmth:.4f}:bm={-warmth:.4f}:"
+                    f"rh={warmth * 0.55:.4f}:bh={-warmth * 0.55:.4f}:pl=1:"
+                    f"enable='{enable}'"
+                )
+            layer_tint = clamp(float(layer.get("tint", 0.0)), -1.0, 1.0)
+            if abs(layer_tint) > 0.0001:
+                green_shift = layer_tint * 0.12
+                layer_filters.append(
+                    f"colorbalance=gm={green_shift:.4f}:gh={green_shift * 0.55:.4f}:pl=1:"
+                    f"enable='{enable}'"
+                )
+            layer_sharpen = clamp(float(layer.get("sharpen", 0.0)), 0.0, 1.5)
+            if layer_sharpen > 0.0001:
+                layer_filters.append(f"unsharp=5:5:{layer_sharpen:.3f}:5:5:0:enable='{enable}'")
+            layer_blur = clamp(float(layer.get("blur", 0.0)), 0.0, 20.0)
+            if layer_blur > 0.0001:
+                layer_filters.append(f"gblur=sigma={layer_blur:.3f}:enable='{enable}'")
+            layer_vignette = clamp(float(layer.get("vignette", 0.0)), 0.0, 1.0)
+            if layer_vignette > 0.0001:
+                layer_filters.append(f"vignette=angle={layer_vignette * 0.65:.4f}:enable='{enable}'")
+            layer_grain = clamp(float(layer.get("grain", 0.0)), 0.0, 50.0)
+            if layer_grain > 0.0001:
+                layer_filters.append(f"noise=alls={layer_grain:.3f}:allf=t+u:enable='{enable}'")
+            if layer_filters:
+                output_label = f"vadjustment{index}"
+                filters.append(f"[{current_video}]{','.join(layer_filters)}[{output_label}]")
+                current_video = output_label
+
+        for index, (title, title_paths) in enumerate(zip(titles, title_files)):
+            title_file, subtitle_file = title_paths
+            start = float(title["start"])
+            end = float(title["end"])
+            style = str(title.get("style") or "lower_third")
+            template = str(title.get("template") or "broadcast")
+            alignment = str(title.get("alignment") or "left")
+            animation = str(title.get("animation") or "slide")
+            accent = _ffmpeg_color(title.get("accentColor"), "#8B5CF6")
+            background = _ffmpeg_color(title.get("backgroundColor"), "#09090B")
+            text_color = _ffmpeg_color(title.get("textColor"), "#FFFFFF")
+            if style == "center_card":
+                transform_defaults = {"x": 0.1, "y": 0.32, "width": 0.8}
+            elif template == "glass":
+                transform_defaults = {"x": 0.045, "y": 0.70, "width": 0.91}
+            elif template == "minimal":
+                transform_defaults = {
+                    "x": 0.54 if alignment == "right" else 0.28 if alignment == "center" else 0.08,
+                    "y": 0.73,
+                    "width": 0.38,
+                }
+            else:
+                transform_defaults = {
+                    "x": 0.385 if alignment == "right" else 0.22 if alignment == "center" else 0.055,
+                    "y": 0.69,
+                    "width": 0.56,
+                }
+            title_x = clamp(float(title.get("x", transform_defaults["x"])), 0.0, 0.95)
+            title_y = clamp(float(title.get("y", transform_defaults["y"])), 0.0, 0.95)
+            title_width = clamp(float(title.get("width", transform_defaults["width"])), 0.12, 1.0)
+            title_scale = clamp(float(title.get("scale", 1.0)), 0.4, 2.5)
+            enable = f"between(t,{start:.3f},{end:.3f})"
+            alpha = _longform_title_alpha(start, end, animation)
+            alpha_option = f":alpha='{alpha}'" if alpha else ""
+            x_value = _longform_title_x(
+                alignment,
+                start=start,
+                end=end,
+                animation=animation,
+                x=title_x,
+                width=title_width,
+                scale=title_scale,
+            )
+
+            if style == "center_card":
+                boxed_video = f"vtitlebox{index}"
+                filters.append(
+                    f"[{current_video}]drawbox=x=iw*{title_x:.6f}:y=ih*{title_y:.6f}:"
+                    f"w=iw*{title_width:.6f}:h=ih*{0.34 * title_scale:.6f}:"
+                    f"color={background}@0.76:t=fill:"
+                    f"enable='{enable}'[{boxed_video}]"
+                )
+                accented_video = f"vtitleaccent{index}"
+                filters.append(
+                    f"[{boxed_video}]drawbox=x=iw*{title_x + title_width * 0.39:.6f}:"
+                    f"y=ih*{title_y + 0.28 * title_scale:.6f}:"
+                    f"w=iw*{title_width * 0.22:.6f}:h=max(4\\,ih*{0.006 * title_scale:.6f}):"
+                    f"color={accent}@0.95:t=fill:enable='{enable}'[{accented_video}]"
+                )
+                current_video = accented_video
+                y_value = f"h*{title_y + 0.065 * title_scale:.6f}"
+                subtitle_y = f"h*{title_y + 0.195 * title_scale:.6f}"
+                font_size = f"h*{(1.0 / 14.0) * title_scale:.6f}"
+                subtitle_size = f"h*{(1.0 / 30.0) * title_scale:.6f}"
+            else:
+                box_x = f"iw*{title_x:.6f}"
+                box_y = f"ih*{title_y:.6f}"
+                box_width = f"iw*{title_width:.6f}"
+                if template == "broadcast":
+                    boxed_video = f"vtitlebox{index}"
+                    filters.append(
+                        f"[{current_video}]drawbox=x={box_x}:y={box_y}:w={box_width}:"
+                        f"h=ih*{0.19 * title_scale:.6f}:"
+                        f"color={background}@0.88:t=fill:enable='{enable}'[{boxed_video}]"
+                    )
+                    accented_video = f"vtitleaccent{index}"
+                    filters.append(
+                        f"[{boxed_video}]drawbox=x={box_x}:y={box_y}:"
+                        f"w=max(5\\,iw*{0.008 * title_scale:.6f}):h=ih*{0.19 * title_scale:.6f}:"
+                        f"color={accent}@0.98:t=fill:enable='{enable}'[{accented_video}]"
+                    )
+                    current_video = accented_video
+                    y_value = f"h*{title_y + 0.035 * title_scale:.6f}"
+                    subtitle_y = f"h*{title_y + 0.12 * title_scale:.6f}"
+                elif template == "glass":
+                    boxed_video = f"vtitlebox{index}"
+                    filters.append(
+                        f"[{current_video}]drawbox=x={box_x}:y={box_y}:w={box_width}:"
+                        f"h=ih*{0.17 * title_scale:.6f}:"
+                        f"color={background}@0.62:t=fill:enable='{enable}'[{boxed_video}]"
+                    )
+                    accented_video = f"vtitleaccent{index}"
+                    filters.append(
+                        f"[{boxed_video}]drawbox=x={box_x}:y={box_y}:w={box_width}:"
+                        f"h=max(4\\,ih*{0.006 * title_scale:.6f}):"
+                        f"color={accent}@0.95:t=fill:enable='{enable}'[{accented_video}]"
+                    )
+                    current_video = accented_video
+                    y_value = f"h*{title_y + 0.03 * title_scale:.6f}"
+                    subtitle_y = f"h*{title_y + 0.11 * title_scale:.6f}"
+                else:
+                    accented_video = f"vtitleaccent{index}"
+                    filters.append(
+                        f"[{current_video}]drawbox=x={box_x}:"
+                        f"y=ih*{title_y + 0.145 * title_scale:.6f}:w={box_width}:"
+                        f"h=max(4\\,ih*{0.006 * title_scale:.6f}):"
+                        f"color={accent}@0.98:t=fill:enable='{enable}'[{accented_video}]"
+                    )
+                    current_video = accented_video
+                    y_value = f"h*{title_y + 0.02 * title_scale:.6f}"
+                    subtitle_y = f"h*{title_y + 0.095 * title_scale:.6f}"
+                font_size = f"h*{(1.0 / 22.0) * title_scale:.6f}"
+                subtitle_size = f"h*{(1.0 / 34.0) * title_scale:.6f}"
+
+            next_video = f"vtitle{index}"
+            filters.append(
+                f"[{current_video}]drawtext=fontfile='{_ffmpeg_filter_path(font_path)}':"
+                f"textfile='{_ffmpeg_filter_path(title_file)}':fontcolor={text_color}:fontsize={font_size}:"
+                f"x='{x_value}':y={y_value}:borderw=1:bordercolor=black@0.55:"
+                f"shadowcolor=black@0.80:shadowx=2:shadowy=2:fix_bounds=1{alpha_option}:"
+                f"enable='{enable}'[{next_video}]"
+            )
+            current_video = next_video
+            if subtitle_file:
+                subtitle_x = _longform_title_x(
+                    alignment,
+                    start=start,
+                    end=end,
+                    animation=animation,
+                    x=title_x,
+                    width=title_width,
+                    scale=title_scale,
+                )
+                subtitle_video = f"vsubtitle{index}"
+                filters.append(
+                    f"[{current_video}]drawtext=fontfile='{_ffmpeg_filter_path(font_path)}':"
+                    f"textfile='{_ffmpeg_filter_path(subtitle_file)}':fontcolor={text_color}@0.84:"
+                    f"fontsize={subtitle_size}:x='{subtitle_x}':y={subtitle_y}:"
+                    f"shadowcolor=black@0.75:shadowx=2:shadowy=2:fix_bounds=1{alpha_option}:"
+                    f"enable='{enable}'[{subtitle_video}]"
+                )
+                current_video = subtitle_video
+
+        if caption_file:
+            filters.append(
+                f"[{current_video}]subtitles=filename='{_ffmpeg_filter_path(caption_file)}':"
+                f"fontsdir='{_ffmpeg_filter_path(os.path.dirname(font_path))}'[vcaptions]"
+            )
+            current_video = "vcaptions"
+
+        video_output = current_video
+        vaapi_tail = encoder_filter(None, backend, delivery_is_hdr)
+        if vaapi_tail:
+            filters.append(f"[{current_video}]{vaapi_tail}[vout]")
+            video_output = "vout"
+
+        audio_output = None
+        working_audio = audio_source
+        if sequence.get("mode") == "replace":
+            filters.append(f"[{working_audio}]volume=0[programreplaced]")
+            working_audio = "programreplaced"
+        angle_audio_labels = []
+        angle_audio_ranges = []
+        for index, (input_index, item, angle) in enumerate(multicam_inputs):
+            if not item.get("useAudio"):
+                continue
+            duration = max(0.05, float(item["end"]) - float(item["start"]))
+            source_start = max(
+                0.0,
+                float(item.get("sourceStart", item["start"])) + float(angle.get("offsetSec", 0.0)),
+            )
+            label = f"multicamaudio{index}"
+            delay_ms = max(0, int(round(float(item["start"]) * 1000)))
+            filters.append(
+                f"[{input_index}:a]atrim=start={source_start:.3f}:duration={duration:.3f},"
+                f"asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms}[{label}]"
+            )
+            angle_audio_labels.append(label)
+            angle_audio_ranges.append((float(item["start"]), float(item["end"])))
+        if angle_audio_labels:
+            for index, (start, end) in enumerate(angle_audio_ranges):
+                muted = f"programmuted{index}"
+                filters.append(
+                    f"[{working_audio}]volume=0:enable='between(t,{start:.3f},{end:.3f})'[{muted}]"
+                )
+                working_audio = muted
+            angle_inputs = "".join(f"[{label}]" for label in angle_audio_labels)
+            filters.append(
+                f"[{working_audio}]{angle_inputs}amix=inputs={len(angle_audio_labels) + 1}:"
+                f"duration=first:normalize=0[programangles]"
+            )
+            working_audio = "programangles"
+
+        dialogue_filters = []
+        if denoise:
+            dialogue_filters.append("afftdn=nf=-25")
+        if audio_mix.get("dialogueMuted"):
+            dialogue_filters.append("volume=0")
+        else:
+            dialogue_gain = clamp(float(audio_mix.get("dialogueGainDb", 0.0)), -60.0, 18.0)
+            if abs(dialogue_gain) > 0.001:
+                dialogue_filters.append(f"volume={dialogue_gain:.3f}dB")
+            audio_keyframes = audio_mix.get("keyframes", []) or []
+            if audio_keyframes:
+                gain_expression = _longform_keyframe_expression(audio_keyframes, "gainDb", 0.0)
+                dialogue_filters.append(
+                    f"volume='pow(10,({gain_expression})/20)':eval=frame"
+                )
+        pan = clamp(float(audio_mix.get("pan", 0.0)), -1.0, 1.0)
+        if abs(pan) > 0.001:
+            left_gain = 1.0 - max(0.0, pan)
+            right_gain = 1.0 + min(0.0, pan)
+            dialogue_filters.append(
+                f"pan=stereo|c0={left_gain:.5f}*c0|c1={right_gain:.5f}*c1"
+            )
+        for frequency, key in ((120, "eqLowDb"), (1000, "eqMidDb"), (8000, "eqHighDb")):
+            gain = clamp(float(audio_mix.get(key, 0.0)), -18.0, 18.0)
+            if abs(gain) > 0.001:
+                dialogue_filters.append(f"equalizer=f={frequency}:t=q:w=1:g={gain:.3f}")
+        if audio_mix.get("noiseGate"):
+            dialogue_filters.append("agate=threshold=0.03:ratio=3:attack=8:release=180")
+        if audio_mix.get("deEsser"):
+            dialogue_filters.append("deesser=i=0.35:m=0.55:f=0.55")
+        if audio_mix.get("compressor"):
+            dialogue_filters.append("acompressor=threshold=0.125:ratio=3:attack=20:release=250:makeup=1.4")
+        if dialogue_filters or music_input_index is not None or angle_audio_labels or sequence_audio_labels:
+            filters.append(
+                f"[{working_audio}]{','.join(dialogue_filters) if dialogue_filters else 'anull'}[program]"
+            )
+            working_audio = "program"
+            audio_output = working_audio
+        elif uses_transition_graph:
+            audio_output = working_audio
+        if sequence_audio_labels:
+            sequence_inputs_graph = "".join(f"[{label}]" for label in sequence_audio_labels)
+            filters.append(
+                f"[{working_audio}]{sequence_inputs_graph}amix=inputs={len(sequence_audio_labels) + 1}:"
+                f"duration=longest:normalize=0[programsequence]"
+            )
+            working_audio = "programsequence"
+            audio_output = working_audio
+        if music_input_index is not None:
+            volume = clamp(float(creative.get("musicVolume", 0.14)), 0.02, 0.5)
+            filters.append(f"[{music_input_index}:a]volume={volume:.3f},asetpts=PTS-STARTPTS[music]")
+            if creative.get("musicDucking", True):
+                filters.append(f"[{working_audio}]asplit=2[program_mix][voice_key]")
+                filters.append("[music][voice_key]sidechaincompress=threshold=0.025:ratio=10:attack=20:release=550[ducked]")
+                music_label = "ducked"
+                program_label = "program_mix"
+            else:
+                music_label = "music"
+                program_label = working_audio
+            filters.append(f"[{program_label}][{music_label}]amix=inputs=2:duration=first:dropout_transition=2[aout]")
+            audio_output = "aout"
+            working_audio = "aout"
+
+        master_filters = []
+        master_gain = clamp(float(audio_mix.get("masterGainDb", 0.0)), -60.0, 18.0)
+        if abs(master_gain) > 0.001:
+            master_filters.append(f"volume={master_gain:.3f}dB")
+        if normalize_audio:
+            master_filters.append(f"loudnorm=I={float(target_lufs):.2f}:TP={float(limiter_db):.2f}:LRA=11")
+            limiter_linear = max(0.01, min(0.99, 10 ** (float(limiter_db) / 20.0)))
+            master_filters.append(f"alimiter=limit={limiter_linear:.5f}:attack=5:release=50")
+        if master_filters:
+            filters.append(f"[{working_audio}]{','.join(master_filters)}[amaster]")
+            audio_output = "amaster"
+
+        command = [
+            *build_encoder_command_prefix(backend),
+            "-y", "-nostdin", "-v", "error",
+            *input_args,
+            "-filter_complex", ";".join(filters),
+            "-map", f"[{video_output}]",
+        ]
+        if audio_output:
+            command.extend(["-map", f"[{audio_output}]"])
+        else:
+            command.extend(["-map", "0:a?"])
+        command.extend(encoder_args(backend, delivery_is_hdr, "longform"))
+        command.extend(["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-shortest", output_path])
+        return command
+
+    backend, _ = run_with_encoder_fallback(
+        build_command,
+        backends,
+        context="Long-form finishing",
+    )
+    RUNTIME_HARDWARE["resolved_video_encoder"] = backend
+    return backend
+
+def render_longform(
+    source_path,
+    segments,
+    output_path,
+    is_hdr,
+    width,
+    height,
+    do_upscale,
+    audio_fade_sec=0.03,
+    video_fade_sec=0.0,
+    normalize_audio=False,
+    target_lufs=-14.0,
+    limiter_db=-1.5,
+    denoise=False,
+    creative=None,
+):
+    print(f"🎬 Rendering Long Form Master: {output_path}")
+
+    backends, tgt_w, tgt_h = get_render_settings(is_hdr, width, height, do_upscale)
+
+    valid_segments = [
+        (float(start), float(end))
+        for start, end in segments
+        if float(end) - float(start) > 0.01
+    ]
+    if not valid_segments:
         raise RuntimeError("No longform segments were extracted after silence trimming")
+    transition_plan = _normalize_longform_transitions(creative or {}, valid_segments)
+    creative_timeline = _longform_creative_timeline(
+        creative or {},
+        valid_segments,
+        transition_plan,
+    )
+    transition_joins = {int(item["joinIndex"]) for item in transition_plan}
+    audio_boundary_offsets = [0.0] * max(0, len(valid_segments) - 1)
+    for transition in transition_plan:
+        join_index = int(transition.get("joinIndex", -1))
+        if 0 <= join_index < len(audio_boundary_offsets):
+            audio_boundary_offsets[join_index] = float(transition.get("audioOffsetSec", 0.0))
+    uses_audio_offsets = any(abs(value) >= 0.001 for value in audio_boundary_offsets)
+    if not do_upscale:
+        tgt_w, tgt_h = _longform_export_size(
+            creative_timeline.get("exportPreset"),
+            tgt_w,
+            tgt_h,
+            creative_timeline.get("delivery"),
+        )
 
-    # Concat
-    print("  > Stitching Master File...")
-    list_path = os.path.join(TEMP_DIR, "longform_list.txt")
-    with open(list_path, "w") as f:
-        for sf in segment_files:
-            f.write(f"file '{sf}'\n")
-            
-    subprocess.run([
-        "ffmpeg", "-y", "-v", "error",
-        "-f", "concat", "-safe", "0",
-        "-i", list_path,
-        "-c", "copy",
-        output_path
-    ], check=True)
-    
-    # Clean
-    os.remove(list_path)
-    for sf in segment_files:
-        os.remove(sf)
+    # Each extraction is re-encoded with a tiny boundary fade. The first frame of
+    # the master and the last frame of the master are left untouched; only edit
+    # joins are softened. Matching audio/video fades preserve A/V duration and
+    # avoid the rough visual jump and audio click of a raw stream concat.
+    work_dir = tempfile.mkdtemp(prefix="longform_", dir=TEMP_DIR)
+    segment_files = []
+    audio_segment_files = []
+    try:
+        print("  > Extracting segments (High Quality)...")
+        if audio_fade_sec > 0 or video_fade_sec > 0:
+            print(
+                "  > Softening joins:"
+                f" audio={int(audio_fade_sec * 1000)}ms,"
+                f" video={int(video_fade_sec * 1000)}ms"
+            )
+        if transition_plan:
+            print(f"  > Professional transitions: {len(transition_plan)} join(s)")
+        if uses_audio_offsets:
+            print("  > J/L audio edits: shifted audio boundaries enabled")
+
+        for i, (start, end) in enumerate(valid_segments):
+            duration = max(end - start, 0.0)
+            seg_file = os.path.join(work_dir, f"segment_{i:04d}.mp4")
+
+            vf_chain = []
+            if tgt_w != width or tgt_h != height:
+                vf_chain.append(f"scale={tgt_w}:{tgt_h}:flags=lanczos")
+            if is_hdr and vf_chain:
+                vf_chain.append("format=p010le")
+
+            video_fade = min(video_fade_sec, max((duration / 2.0) - 0.005, 0.0))
+            if video_fade > 0 and i > 0 and (i - 1) not in transition_joins:
+                vf_chain.append(f"fade=t=in:st=0:d={video_fade:.3f}:color=black")
+            if video_fade > 0 and i < len(valid_segments) - 1 and i not in transition_joins:
+                fade_out_start = max(duration - video_fade, 0.0)
+                vf_chain.append(
+                    f"fade=t=out:st={fade_out_start:.3f}:d={video_fade:.3f}:color=black"
+                )
+
+            af_chain = []
+            audio_fade = min(audio_fade_sec, max((duration / 2.0) - 0.005, 0.0))
+            if audio_fade > 0 and i > 0 and (i - 1) not in transition_joins:
+                af_chain.append(f"afade=t=in:st=0:d={audio_fade:.3f}:curve=qsin")
+            if audio_fade > 0 and i < len(valid_segments) - 1 and i not in transition_joins:
+                fade_out_start = max(duration - audio_fade, 0.0)
+                af_chain.append(
+                    f"afade=t=out:st={fade_out_start:.3f}:d={audio_fade:.3f}:curve=qsin"
+                )
+
+            base_vf = ",".join(vf_chain) if vf_chain else None
+            af_flag = ["-af", ",".join(af_chain)] if af_chain else []
+
+            def build_command(backend):
+                vf_value = encoder_filter(base_vf, backend, is_hdr)
+                vf_flag = ["-vf", vf_value] if vf_value else []
+                return [
+                    *build_encoder_command_prefix(backend),
+                    "-y", "-v", "error",
+                    "-ss", str(start), "-t", str(duration),
+                    "-i", source_path,
+                    *vf_flag,
+                    *af_flag,
+                    *encoder_args(backend, is_hdr, "longform"),
+                    "-c:a", "aac", "-b:a", "192k",
+                    seg_file,
+                ]
+
+            backend, _ = run_with_encoder_fallback(
+                build_command,
+                backends,
+                context=f"Long-form segment {i + 1}",
+            )
+            RUNTIME_HARDWARE["resolved_video_encoder"] = backend
+            segment_files.append(seg_file)
+
+            if uses_audio_offsets:
+                audio_start = start + (audio_boundary_offsets[i - 1] if i > 0 else 0.0)
+                audio_end = end + (audio_boundary_offsets[i] if i < len(audio_boundary_offsets) else 0.0)
+                audio_start = max(0.0, audio_start)
+                audio_end = max(audio_start + 0.01, audio_end)
+                audio_file = os.path.join(work_dir, f"audio_{i:04d}.wav")
+                subprocess.run([
+                    RUNTIME_HARDWARE["ffmpeg_bin"], "-y", "-nostdin", "-v", "error",
+                    "-ss", str(audio_start), "-t", str(audio_end - audio_start),
+                    "-i", source_path,
+                    "-vn", "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le",
+                    audio_file,
+                ], check=True, stdin=subprocess.DEVNULL)
+                audio_segment_files.append(audio_file)
+
+        print("  > Stitching Master File...")
+        list_path = os.path.join(work_dir, "segments.txt")
+        with open(list_path, "w", encoding="utf-8") as handle:
+            for segment_file in segment_files:
+                escaped = segment_file.replace("'", "'\\''")
+                handle.write(f"file '{escaped}'\n")
+
+        joined_path = os.path.join(work_dir, "joined.mp4")
+        subprocess.run([
+            RUNTIME_HARDWARE["ffmpeg_bin"], "-y", "-nostdin", "-v", "error",
+            "-f", "concat", "-safe", "0",
+            "-i", list_path,
+            "-c", "copy",
+            joined_path,
+        ], check=True, stdin=subprocess.DEVNULL)
+
+        if normalize_audio or denoise or creative_timeline.get("musicPath"):
+            print(
+                "  > Audio finishing:"
+                f" denoise={'on' if denoise else 'off'},"
+                f" loudness={f'{float(target_lufs):.1f} LUFS' if normalize_audio else 'unchanged'},"
+                f" music={'on' if creative_timeline.get('musicPath') else 'off'}"
+            )
+        return apply_longform_creative_finish(
+            joined_path,
+            output_path,
+            creative=creative_timeline,
+            width=tgt_w,
+            height=tgt_h,
+            is_hdr=is_hdr,
+            backends=backends,
+            work_dir=work_dir,
+            normalize_audio=normalize_audio,
+            target_lufs=target_lufs,
+            limiter_db=limiter_db,
+            denoise=denoise,
+            segment_files=segment_files if transition_plan else None,
+            segment_durations=[
+                end - start for start, end in valid_segments
+            ] if transition_plan else None,
+            audio_segment_files=audio_segment_files if uses_audio_offsets else None,
+        )
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 def persist_source_video(video_path):
     """Store a stable source reference for future rerenders/bakes."""
@@ -1838,15 +4448,270 @@ def persist_source_video(video_path):
     return stable_path
 
 
+def _json_safe(value):
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
+
+
+def candidate_for_manifest(clip):
+    fields = (
+        "id", "yield_id", "start", "end", "text", "context_before", "context_after", "words", "score", "candidate_score",
+        "reasons", "score_breakdown", "ranking_version", "topics", "intelligence_providers",
+        "confidence_tier", "yield_tier", "yield_role", "yield_rank", "yield_plan",
+        "cluster_id", "story_cluster_id", "variant_rank", "duplicate_of", "boundary_quality",
+    )
+    return _json_safe({key: clip.get(key) for key in fields if key in clip})
+
+
+def write_candidate_manifest(source_path, analysis_result, args):
+    selected = list(analysis_result.get("selected", []))
+    reserves = list(analysis_result.get("reserves", []))
+    candidate_by_id = {}
+    for clip in [*selected, *reserves, *analysis_result.get("ranked_candidates", [])]:
+        if confidence_tier(clip.get("score")) is None:
+            continue
+        candidate_id = str(clip.get("yield_id") or clip.get("id") or "").strip()
+        if not candidate_id:
+            candidate_id = f"candidate-{len(candidate_by_id):04d}"
+            clip["yield_id"] = candidate_id
+        if candidate_id not in candidate_by_id:
+            candidate_by_id[candidate_id] = candidate_for_manifest(clip)
+
+    source_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", os.path.splitext(os.path.basename(source_path))[0])[:80]
+    manifest_path = os.path.join(
+        CANDIDATE_MANIFESTS_DIR,
+        f"{source_stem}_{int(time.time() * 1000)}.json",
+    )
+    payload = {
+        "manifest_version": 2,
+        "kind": "shorts_candidate_manifest",
+        "status": "awaiting_review" if args.mode == "shorts-analyze" else "rendering",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "source": os.path.abspath(source_path),
+        "yield": analysis_result.get("yield", {}),
+        "settings": {
+            "subtitle_style": args.subtitle_style,
+            "framing_mode": args.framing_mode,
+            "upscale": bool(args.upscale),
+            "export_preset": args.export_preset,
+            "output_name_template": args.output_name_template,
+            "video_encoder": args.video_encoder,
+            "compute_device": args.compute_device,
+            "vaapi_device": args.vaapi_device,
+            "transcription_provider": RUNTIME_HARDWARE.get("resolved_transcription_provider"),
+            "transcription_model": RUNTIME_HARDWARE.get("transcription_model") or CONFIG["transcription"]["model_size"],
+            "transcription_language": RUNTIME_HARDWARE.get("transcription_language", "auto"),
+        },
+        "selected_candidate_ids": [str(clip.get("yield_id") or clip.get("id")) for clip in selected],
+        "reserve_candidate_ids": [str(clip.get("yield_id") or clip.get("id")) for clip in reserves],
+        "exported_candidate_ids": [],
+        "failed_candidate_ids": [],
+        "feedback": {},
+        "candidates": list(candidate_by_id.values()),
+    }
+    temporary_path = f"{manifest_path}.tmp"
+    with open(temporary_path, "w", encoding="utf-8") as handle:
+        json.dump(_json_safe(payload), handle, indent=2)
+    os.replace(temporary_path, manifest_path)
+    for clip in [*selected, *reserves]:
+        clip["candidate_manifest"] = manifest_path
+    return manifest_path
+
+
+def update_candidate_manifest(manifest_path, *, exported_id=None, failed_id=None):
+    try:
+        with open(manifest_path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if exported_id:
+            exported = payload.setdefault("exported_candidate_ids", [])
+            if exported_id not in exported:
+                exported.append(exported_id)
+        if failed_id:
+            failed = payload.setdefault("failed_candidate_ids", [])
+            if failed_id not in failed:
+                failed.append(failed_id)
+        selected = {str(value) for value in payload.get("selected_candidate_ids", [])}
+        exported_set = {str(value) for value in payload.get("exported_candidate_ids", [])}
+        failed_set = {str(value) for value in payload.get("failed_candidate_ids", [])}
+        if selected and selected.issubset(exported_set | failed_set):
+            payload["status"] = "rendered" if selected.issubset(exported_set) else "rendered_with_errors"
+        elif exported_set:
+            payload["status"] = "rendering"
+        temporary_path = f"{manifest_path}.tmp"
+        with open(temporary_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+        os.replace(temporary_path, manifest_path)
+    except (OSError, ValueError) as error:
+        print(f"  ⚠️  Could not update candidate manifest: {error}")
+
+
+def render_more_from_candidate_manifest(manifest_path, requested_count, args, candidate_ids=None):
+    manifest_path = os.path.abspath(manifest_path)
+    allowed_root = os.path.abspath(CANDIDATE_MANIFESTS_DIR) + os.sep
+    if not manifest_path.startswith(allowed_root):
+        raise ValueError("Candidate manifest must be inside the managed manifest directory")
+    with open(manifest_path, encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    if manifest.get("kind") != "shorts_candidate_manifest":
+        raise ValueError("The selected file is not a Shorts candidate manifest")
+
+    source_path = os.path.abspath(str(manifest.get("source") or ""))
+    if not source_path or not os.path.exists(source_path):
+        raise FileNotFoundError(f"Candidate source video not found: {source_path}")
+    requested_count = max(1, min(50, int(requested_count or 5)))
+    settings = manifest.get("settings") or {}
+    subtitle_style = str(settings.get("subtitle_style") or args.subtitle_style or "classic")
+    framing_mode = str(settings.get("framing_mode") or args.framing_mode or "auto")
+    if framing_mode not in {"auto", "smart_switch", "dual_stack"}:
+        framing_mode = "auto"
+    do_upscale = bool(settings.get("upscale", False))
+    RUNTIME_HARDWARE["export_preset"] = str(settings.get("export_preset") or args.export_preset)
+    RUNTIME_HARDWARE["output_name_template"] = str(
+        settings.get("output_name_template") or args.output_name_template
+    )
+    RUNTIME_HARDWARE["resolved_transcription_provider"] = settings.get("transcription_provider")
+    RUNTIME_HARDWARE["transcription_model"] = settings.get("transcription_model")
+
+    candidates = [dict(candidate) for candidate in manifest.get("candidates", []) if isinstance(candidate, dict)]
+    by_id = {
+        str(candidate.get("yield_id") or candidate.get("id")): candidate
+        for candidate in candidates
+        if candidate.get("yield_id") or candidate.get("id")
+    }
+    exported_ids = {str(value) for value in manifest.get("exported_candidate_ids", [])}
+    failed_ids = {str(value) for value in manifest.get("failed_candidate_ids", [])}
+    requested_ids = [str(value).strip() for value in (candidate_ids or []) if str(value).strip()]
+    if requested_ids:
+        unknown = [candidate_id for candidate_id in requested_ids if candidate_id not in by_id]
+        if unknown:
+            raise ValueError(f"Unknown candidate id(s): {', '.join(unknown[:5])}")
+        ordered_ids = list(dict.fromkeys(requested_ids))
+    else:
+        # Prefer a new story cluster before offering alternate lengths from an
+        # already-exported story.  Older manifests without cluster metadata
+        # retain the existing score order.
+        exported_clusters = {
+            str(by_id[candidate_id].get("cluster_id") or by_id[candidate_id].get("story_cluster_id"))
+            for candidate_id in exported_ids
+            if candidate_id in by_id
+            and (by_id[candidate_id].get("cluster_id") or by_id[candidate_id].get("story_cluster_id"))
+        }
+        ranked = sorted(
+            candidates,
+            key=lambda item: (
+                str(item.get("cluster_id") or item.get("story_cluster_id") or "") in exported_clusters,
+                int(item.get("variant_rank", 1) or 1),
+                -float(item.get("score", 0.0)),
+            ),
+        )
+        ordered_ids = list(dict.fromkeys([
+            *[str(value) for value in manifest.get("reserve_candidate_ids", [])],
+            *[str(candidate.get("yield_id") or candidate.get("id")) for candidate in ranked],
+        ]))
+    queue = [
+        by_id[candidate_id]
+        for candidate_id in ordered_ids
+        if candidate_id in by_id and candidate_id not in exported_ids and candidate_id not in failed_ids
+    ]
+    if not queue:
+        print("✅ No unused eligible candidates remain in this analysis manifest.")
+        return
+
+    desired = min(len(requested_ids) if requested_ids else requested_count, len(queue))
+    if requested_ids:
+        manifest["selected_candidate_ids"] = [
+            candidate_id for candidate_id in requested_ids
+            if candidate_id not in exported_ids and candidate_id not in failed_ids
+        ]
+        manifest["status"] = "rendering"
+        temporary_path = f"{manifest_path}.tmp"
+        with open(temporary_path, "w", encoding="utf-8") as handle:
+            json.dump(manifest, handle, indent=2)
+        os.replace(temporary_path, manifest_path)
+    print(
+        f"➕ Generate More: rendering {desired} unused candidate(s) from saved analysis"
+        " without rerunning transcription"
+    )
+    is_hdr, src_w, src_h = detect_hdr_and_res(source_path)
+    proxy_path = create_proxy(source_path)
+    exported = 0
+    try:
+        for attempt_index, clip in enumerate(queue):
+            if exported >= desired:
+                break
+            candidate_id = str(clip.get("yield_id") or clip.get("id"))
+            clip["candidate_manifest"] = manifest_path
+            clip["confidence_tier"] = clip.get("confidence_tier") or clip.get("yield_tier")
+            clip["yield_role"] = "generate_more"
+            print(
+                f"\n📎 Additional candidate {attempt_index + 1}/{len(queue)}"
+                f" | Score: {float(clip.get('score', 0.0)):.1f}"
+                f" | Duration: {float(clip['end']) - float(clip['start']):.1f}s"
+            )
+            try:
+                frame_layout = analyze_speaker_layout(
+                    proxy_path,
+                    float(clip["start"]),
+                    sample_duration=3,
+                    framing_mode=framing_mode,
+                    clip_end_time=float(clip["end"]),
+                    clip_words=clip.get("words", []),
+                )
+                render_clip(
+                    source_path,
+                    clip,
+                    frame_layout,
+                    len(exported_ids) + exported,
+                    is_hdr,
+                    do_upscale,
+                    subtitle_style,
+                    bake_subtitles=False,
+                    metadata_source_path=source_path,
+                )
+                exported += 1
+                update_candidate_manifest(manifest_path, exported_id=candidate_id)
+            except Exception as error:
+                update_candidate_manifest(manifest_path, failed_id=candidate_id)
+                print(f"  ❌ Candidate {candidate_id} failed: {error} — trying the next candidate")
+        print(f"\n✅ Generate More exported {exported}/{desired} additional Shorts")
+    finally:
+        if proxy_path != source_path and os.path.exists(proxy_path):
+            try:
+                os.remove(proxy_path)
+            except OSError:
+                pass
+
+
 def render_clip(video_path, clip_data, static_center, index, is_hdr, do_upscale, subtitle_style="classic", subtitle_animation="none", output_path=None, sub_pos_x=None, sub_pos_y=None, sub_font_size=None, bake_subtitles=True, font_override=None, sub_width=None, video_zoom=1.0, video_pan_x=0.0, video_pan_y=0.0, metadata_source_path=None):
     """Render a single 9:16 clip using SOURCE VIDEO with static crop and optional subtitles"""
     start_time = clip_data["start"]
     end_time = clip_data["end"]
     duration = end_time - start_time
 
+    export_preset = get_export_preset(RUNTIME_HARDWARE.get("export_preset", "generic"))
     if output_path is None:
-        filename = f"clip_{index+1}_score_{clip_data['score']:.1f}.mp4"
+        filename = safe_output_name(
+            RUNTIME_HARDWARE.get("output_name_template", "{source}_{platform}_{index}_{score}"),
+            metadata_source_path or video_path,
+            export_preset["id"],
+            index + 1,
+            float(clip_data.get("score", 0)),
+        )
         output_path = os.path.join(OUTPUT_DIR, filename)
+        if os.path.exists(output_path):
+            stem, extension = os.path.splitext(filename)
+            collision_index = 2
+            while os.path.exists(os.path.join(OUTPUT_DIR, f"{stem}_{collision_index}{extension}")):
+                collision_index += 1
+            filename = f"{stem}_{collision_index}{extension}"
+            output_path = os.path.join(OUTPUT_DIR, filename)
     else:
         filename = os.path.basename(output_path)
     animation_label = subtitle_animation if subtitle_animation and subtitle_animation != "none" else "none"
@@ -1857,8 +4722,8 @@ def render_clip(video_path, clip_data, static_center, index, is_hdr, do_upscale,
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1920
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 1080
 
-    target_w, target_h = CONFIG['processing']['output_resolution']
-    frame_layout = normalize_frame_layout(static_center, width)
+    target_w, target_h = export_preset["width"], export_preset["height"]
+    frame_layout = normalize_frame_layout(static_center, width, height)
     layout_mode = frame_layout.get("mode", "single")
     cap.release()
 
@@ -1901,9 +4766,14 @@ def render_clip(video_path, clip_data, static_center, index, is_hdr, do_upscale,
         if subtitle_filter:
             vf_chain += f",{subtitle_filter}"
     else:
-        crop_w = int(height * (9 / 16))
+        crop_h = height
+        if layout_mode == "smart_switch":
+            crop_h = int(clamp(frame_layout.get("crop_height", height), 2, height))
+        crop_h = max(2, (crop_h // 2) * 2)
+        crop_w = int(crop_h * (9 / 16))
         if crop_w > width:
             crop_w = width
+        crop_w = max(2, (crop_w // 2) * 2)
 
         static_center_px = frame_layout.get("static_center", width // 2)
         x1 = static_center_px - (crop_w // 2)
@@ -1917,22 +4787,50 @@ def render_clip(video_path, clip_data, static_center, index, is_hdr, do_upscale,
             x1 = width - crop_w
 
         crop_x = str(int(x1))
+        static_center_y = int(frame_layout.get("center_y", height // 2))
+        vertical_position = clamp(
+            float(CONFIG.get("tracking", {}).get("smart_switch", {}).get("crop_face_vertical_position", 0.44)),
+            0.2,
+            0.8,
+        )
+        static_y = _smart_crop_top(
+            static_center_y,
+            crop_h,
+            height,
+            vertical_position,
+            detected_top=frame_layout.get("crop_top"),
+        )
+        crop_y = str(static_y)
         if layout_mode == "smart_switch" and frame_layout.get("switch_segments"):
             default_x = int(x1)
-            expr = str(default_x)
+            x_expr = str(default_x)
+            y_expr = str(static_y)
             for segment in reversed(frame_layout.get("switch_segments", [])):
-                center = int(segment.get("center", static_center_px))
+                center = int(segment.get("center_x", segment.get("center", static_center_px)))
+                center_y = int(segment.get("center_y", static_center_y))
                 sx = int(clamp(center - (crop_w // 2), 0, max(0, width - crop_w)))
+                sy = _smart_crop_top(
+                    center_y,
+                    crop_h,
+                    height,
+                    vertical_position,
+                    detected_top=segment.get("crop_top"),
+                )
                 start_rel = max(0.0, float(segment.get("start", 0.0)))
                 end_rel = max(start_rel + 0.05, float(segment.get("end", start_rel + 0.05)))
-                expr = f"if(between(t\\,{start_rel:.3f}\\,{end_rel:.3f})\\,{sx}\\,{expr})"
-            crop_x = expr
-            print(f"  > Smart speaker crop: {crop_w}x{height} with {len(frame_layout.get('switch_segments', []))} switch segment(s)")
+                x_expr = f"if(between(t\\,{start_rel:.3f}\\,{end_rel:.3f})\\,{sx}\\,{x_expr})"
+                y_expr = f"if(between(t\\,{start_rel:.3f}\\,{end_rel:.3f})\\,{sy}\\,{y_expr})"
+            crop_x = x_expr
+            crop_y = y_expr
+            print(
+                f"  > Smart talking-head crop: {crop_w}x{crop_h} with"
+                f" {len(frame_layout.get('switch_segments', []))} verified switch segment(s)"
+            )
         else:
-            print(f"  > Static crop: {crop_w}x{height} at X={x1}")
+            print(f"  > Static crop: {crop_w}x{crop_h} at X={x1}, Y={static_y}")
 
         filters = [
-            f"crop={crop_w}:{height}:{crop_x}:0",
+            f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y}",
             f"scale={target_w}:{target_h}:flags=lanczos",
         ]
 
@@ -1953,63 +4851,40 @@ def render_clip(video_path, clip_data, static_center, index, is_hdr, do_upscale,
             filters.append(subtitle_filter)
         vf_chain = ",".join(filters)
 
-    # Render with NVENC
-    temp_output = os.path.join(TEMP_DIR, f"temp_clip_{index}.mp4")
-    def build_render_cmd(vf_value, encoder):
-        if encoder == "h264_nvenc":
-            video_args = [
-                "-c:v", "h264_nvenc",
-                "-preset", "p7",
-                "-tune", "hq",
-                "-rc", "vbr",
-                "-cq", "19",
-                "-b:v", "15M",
-                "-maxrate", "25M",
-                "-bufsize", "30M",
-            ]
-        else:
-            video_args = [
-                "-c:v", "libx264",
-                "-preset", "fast",
-                "-crf", "18",
-                "-maxrate", "25M",
-                "-bufsize", "30M",
-            ]
-
+    def build_render_cmd(vf_value, backend):
+        resolved_vf = encoder_filter(vf_value, backend, False)
         return [
-            "ffmpeg", "-y", "-v", "quiet", "-nostats", "-progress", "pipe:2",
+            *build_encoder_command_prefix(backend),
+            "-y", "-v", "quiet", "-nostats", "-progress", "pipe:2",
             "-ss", str(start_time), "-t", str(duration),
             "-i", video_path,
-            "-vf", vf_value,
-            *video_args,
-            "-pix_fmt", "yuv420p",
+            "-vf", resolved_vf,
+            *encoder_args(backend, False, "clip"),
             "-c:a", "aac", "-b:a", "192k",
             output_path
         ]
 
-    cmd = build_render_cmd(vf_chain, "h264_nvenc")
-
     try:
-        subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError as e:
+        resolved_backend, _ = run_with_encoder_fallback(
+            lambda backend: build_render_cmd(vf_chain, backend),
+            configured_video_backends(False),
+            context=f"Clip {index + 1}",
+        )
+        RUNTIME_HARDWARE["resolved_video_encoder"] = resolved_backend
+    except RuntimeError:
         no_sub_filters = [f for f in filters if not f.startswith("ass=")]
         vf_no_sub = ",".join(no_sub_filters) if no_sub_filters else "null"
-        print(f"  ⚠️  NVENC clip render failed (exit {e.returncode})")
-
-        cpu_vf = vf_chain
-        print("  ⚠️  Retrying clip on CPU encoder with subtitles/layout intact...")
-        try:
-            subprocess.run(build_render_cmd(cpu_vf, "libx264"), check=True)
-            print("  ✅ Clip render succeeded on CPU fallback")
-        except subprocess.CalledProcessError as cpu_err:
-            if bake_subtitles and subtitle_filter:
-                raise
-            if layout_mode != "dual_stack" and len(no_sub_filters) < len(filters):
-                print(f"  ⚠️  CPU subtitle retry failed (exit {cpu_err.returncode}); retrying without subtitles...")
-                subprocess.run(build_render_cmd(vf_no_sub, "libx264"), check=True)
-                print("  ✅ Clip render succeeded without subtitles")
-            else:
-                raise
+        if bake_subtitles and subtitle_filter:
+            raise
+        if layout_mode == "dual_stack" or len(no_sub_filters) == len(filters):
+            raise
+        print("  ⚠️  Retrying without subtitles after all encoders rejected the subtitle filter...")
+        resolved_backend, _ = run_with_encoder_fallback(
+            lambda backend: build_render_cmd(vf_no_sub, backend),
+            configured_video_backends(False),
+            context=f"Clip {index + 1} without subtitles",
+        )
+        RUNTIME_HARDWARE["resolved_video_encoder"] = resolved_backend
 
     # Save clip metadata JSON for subtitle editing
     json_path = output_path.replace('.mp4', '.json')
@@ -2022,7 +4897,27 @@ def render_clip(video_path, clip_data, static_center, index, is_hdr, do_upscale,
         "candidate_score": clip_data.get("candidate_score", clip_data.get("score", 0)),
         "reasons": clip_data.get("reasons", []),
         "score_breakdown": clip_data.get("score_breakdown", {}),
-        "ranking_version": clip_data.get("ranking_version", "hybrid_v2"),
+        "ranking_version": clip_data.get("ranking_version", "hybrid_v3"),
+        "candidate_id": clip_data.get("yield_id") or clip_data.get("id"),
+        "confidence_tier": clip_data.get("confidence_tier") or clip_data.get("yield_tier"),
+        "yield_role": clip_data.get("yield_role"),
+        "yield_rank": clip_data.get("yield_rank"),
+        "yield_plan": clip_data.get("yield_plan", {}),
+        "cluster_id": clip_data.get("cluster_id") or clip_data.get("story_cluster_id"),
+        "variant_rank": clip_data.get("variant_rank", 1),
+        "duplicate_of": clip_data.get("duplicate_of"),
+        "candidate_manifest": clip_data.get("candidate_manifest"),
+        "topics": clip_data.get("topics", []),
+        "intelligence_providers": clip_data.get("intelligence_providers", {}),
+        "transcription_provider": RUNTIME_HARDWARE.get("resolved_transcription_provider"),
+        "transcription_model": RUNTIME_HARDWARE.get("transcription_model") or CONFIG["transcription"]["model_size"],
+        "compute_backend": RUNTIME_HARDWARE.get("resolved_compute", "cpu"),
+        "video_encoder": RUNTIME_HARDWARE.get("resolved_video_encoder") or "cpu",
+        "manifest_version": 1,
+        "export_preset": export_preset["id"],
+        "output_resolution": [target_w, target_h],
+        "safe_area": export_preset["safe_area"],
+        "output_name_template": RUNTIME_HARDWARE.get("output_name_template"),
         "style": subtitle_style,
         "animation": subtitle_animation or "none",
         "font": font_override,
@@ -2633,7 +5528,7 @@ def get_subtitle_filter(style, subtitle_file):
 def detect_hdr_and_res(video_path):
     """Check if video is HDR and get resolution"""
     cmd = [
-        "ffprobe", "-v", "error", 
+        RUNTIME_HARDWARE["ffprobe_bin"], "-v", "error",
         "-select_streams", "v:0",
         "-show_entries", "stream=color_transfer,color_space,color_primaries,width,height", 
         "-of", "json", 
@@ -2653,7 +5548,7 @@ def detect_hdr_and_res(video_path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("url", help="Video URL or File Path")
-    parser.add_argument("--mode", choices=["shorts", "longform", "rerender"], default="shorts")
+    parser.add_argument("--mode", choices=["shorts", "shorts-analyze", "shorts-more", "longform", "rerender", "longform-edit"], default="shorts")
     parser.add_argument("--upscale", action="store_true", help="Upscale to 8K")
     parser.add_argument("--subtitle-style",
                        choices=["classic", "bold", "explosive", "bounce", "pulse", "clean",
@@ -2665,7 +5560,7 @@ def main():
                        help="Caption style")
     parser.add_argument("--font", default=None,
                        help="Font override for subtitles (e.g. 'Anton', 'Bebas Neue', 'Oswald', 'Poppins Black')")
-    parser.add_argument("--max-duration", type=int, choices=[30, 60, 120, 180], default=180,
+    parser.add_argument("--max-duration", type=int, choices=[30, 60, 90, 120, 180], default=180,
                        help="Max clip duration: 60 (<1min), 120 (up to 2min), 180 (up to 3min)")
     parser.add_argument("--start-time", type=float, default=0.0,
                        help="Optional start time (seconds) to limit analysis/render window")
@@ -2673,11 +5568,63 @@ def main():
                        help="Optional end time (seconds) to limit analysis/render window; -1 means end of video")
     parser.add_argument("--max-clips", type=int, choices=[5,10,15,20,25,30,35,40,45,50], default=None,
                        help="Max number of clips to export (5-50 in steps of 5)")
+    parser.add_argument("--clip-volume", choices=["curated", "balanced", "more", "exact"], default="balanced",
+                       help="Shorts yield strategy; balanced targets roughly one clip per 3 active-speech minutes")
+    parser.add_argument("--target-clips", type=int, default=None,
+                       help="Exact Shorts count when --clip-volume=exact (still limited by --max-clips)")
     parser.add_argument("--framing-mode", choices=["auto", "smart_switch", "dual_stack"], default="auto",
                        help="Shorts framing: auto, smart_switch, or dual_stack")
     parser.add_argument("--rerender-json", help="Path to clip metadata JSON for subtitle re-render")
     parser.add_argument("--rerender-output", help="Output path for re-rendered clip")
+    parser.add_argument("--longform-json", help="Path to a saved long-form edit project")
+    parser.add_argument("--longform-output", help="Output path for an edited long-form render")
+    parser.add_argument("--candidate-manifest", help="Saved Shorts candidate analysis for Generate More")
+    parser.add_argument("--generate-more-count", type=int, default=5,
+                       help="Number of additional candidates to render from a saved analysis (1-50)")
+    parser.add_argument("--candidate-ids", default="",
+                       help="Comma-separated reviewed candidate IDs to render in shorts-more mode")
+    parser.add_argument("--compute-device", choices=["auto", "cpu", "cuda", "rocm"],
+                       default=CONFIG.get("processing", {}).get("compute_device", "auto"),
+                       help="Whisper compute backend; auto prefers ROCm/CUDA over CPU")
+    parser.add_argument("--video-encoder", choices=["auto", "cpu", "nvenc", "vaapi", "amf"],
+                       default=CONFIG.get("processing", {}).get("video_encoder", "auto"),
+                       help="FFmpeg video encoder; auto probes hardware before falling back to CPU")
+    parser.add_argument("--transcription-provider", choices=["auto", "openai_whisper", "whisper_cpp", "deepgram"], default="auto",
+                       help="Speech-to-text backend; auto stays local and prefers accelerated PyTorch")
+    parser.add_argument("--transcription-model", choices=["tiny", "base", "small", "medium", "large-v3", "turbo"], default=None,
+                       help="Override the configured local Whisper model")
+    parser.add_argument("--transcription-language", default=os.environ.get("VCF_WHISPER_CPP_LANGUAGE", "auto"),
+                       help="Spoken language code, or auto for language detection")
+    parser.add_argument("--local-semantic", action="store_true",
+                       help="Rerank shorts with a configured local OpenAI-compatible model endpoint")
+    parser.add_argument("--gemini-analysis", action="store_true",
+                       help="Opt in to Gemini cloud video/audio analysis for shorts")
+    parser.add_argument("--vaapi-device", default=os.environ.get(
+                           "VCF_VAAPI_DEVICE", CONFIG.get("processing", {}).get("vaapi_device", "/dev/dri/renderD128")
+                       ),
+                       help="Linux VAAPI render device")
+    parser.add_argument("--export-preset", choices=["generic", "youtube_shorts", "instagram_reels", "tiktok"], default="generic",
+                       help="Creator export compatibility preset")
+    parser.add_argument("--output-name-template", default="{source}_{platform}_{index}_{score}",
+                       help="Output filename template")
     args = parser.parse_args()
+    if args.clip_volume == "exact" and not args.target_clips:
+        parser.error("--target-clips is required when --clip-volume=exact")
+
+    RUNTIME_HARDWARE.update({
+        "compute_device": args.compute_device,
+        "video_encoder": args.video_encoder,
+        "vaapi_device": args.vaapi_device,
+        "transcription_provider": args.transcription_provider,
+        "transcription_model": args.transcription_model,
+        "transcription_language": str(args.transcription_language or "auto").strip().lower(),
+        "local_semantic": bool(args.local_semantic),
+        "gemini_analysis": bool(args.gemini_analysis),
+        "export_preset": args.export_preset,
+        "output_name_template": args.output_name_template,
+        "clip_volume": args.clip_volume,
+        "target_clips": args.target_clips,
+    })
 
     # Apply max-duration override
     if args.max_duration != 180:
@@ -2690,6 +5637,10 @@ def main():
         print(f"🎬 Max clips to export set to {args.max_clips}")
     if args.mode == "shorts":
         print(f"🎥 Framing mode: {args.framing_mode.replace('_', ' ')}")
+        print(
+            f"📦 Clip volume: {args.clip_volume}"
+            + (f" ({args.target_clips} requested)" if args.clip_volume == "exact" else "")
+        )
 
     # Rerender mode: re-render a clip with edited subtitles from a saved JSON
     if args.mode == "rerender" or args.rerender_json:
@@ -2736,6 +5687,221 @@ def main():
                     bake_subtitles=True, font_override=font_override, sub_width=sub_width,
                     video_zoom=video_zoom, video_pan_x=video_pan_x, video_pan_y=video_pan_y)
         print(f"✅ Re-render complete: {output_path}")
+        return
+
+    # Long-form edit mode is deliberately lightweight: it consumes an
+    # already-analyzed silence project without loading Whisper/Torch.
+    if args.mode == "longform-edit":
+        if not args.longform_json or not args.longform_output:
+            raise ValueError("--longform-json and --longform-output are required for longform-edit mode")
+        with open(args.longform_json, encoding="utf-8") as handle:
+            project = json.load(handle)
+
+        source = os.path.abspath(project.get("source") or args.url)
+        if not os.path.exists(source):
+            raise FileNotFoundError(f"Long-form source not found: {source}")
+        source_duration = float(project.get("source_duration_sec") or probe_duration(
+            source,
+            ffprobe_bin=RUNTIME_HARDWARE["ffprobe_bin"],
+        ))
+        selected_range = project.get("selected_range") or {}
+        selected_start = max(0.0, float(selected_range.get("start", 0.0)))
+        selected_end = min(source_duration, float(selected_range.get("end", source_duration)))
+        if selected_end <= selected_start:
+            raise ValueError("The long-form selected range is empty")
+
+        silence = project.get("silence") or {}
+        silence_enabled = silence.get("enabled", True) is not False
+        cuts = [dict(cut) for cut in (project.get("cuts") or [])]
+        render_cuts = [dict(cut) for cut in cuts]
+        if not silence_enabled:
+            for cut in render_cuts:
+                cut["enabled"] = False
+        keep_segments = cuts_to_keep_segments(
+            render_cuts,
+            selected_start=selected_start,
+            selected_end=selected_end,
+        )
+        requested_render_segments = project.get("render_segments") or []
+        segments = []
+        for raw_segment in requested_render_segments:
+            try:
+                start = float(raw_segment.get("start") if isinstance(raw_segment, dict) else raw_segment[0])
+                end = float(raw_segment.get("end") if isinstance(raw_segment, dict) else raw_segment[1])
+            except (TypeError, ValueError, IndexError, KeyError):
+                continue
+            if (
+                end - start > 0.01
+                and start >= selected_start - 0.001
+                and end <= selected_end + 0.001
+            ):
+                segments.append((start, end))
+        if not segments:
+            segments = [(segment["start"], segment["end"]) for segment in keep_segments]
+        if not segments:
+            raise RuntimeError("The selected silence cuts would remove the entire long-form video")
+        creative_payload = project.get("creative") or {}
+        transition_plan = _normalize_longform_transitions(creative_payload, segments)
+        transition_durations = _longform_transition_durations(transition_plan, len(segments))
+
+        is_hdr, src_w, src_h = detect_hdr_and_res(source)
+        output_path = os.path.abspath(args.longform_output)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        render_longform(
+            source,
+            segments,
+            output_path,
+            is_hdr,
+            src_w,
+            src_h,
+            bool(project.get("upscale", False)),
+            audio_fade_sec=max(0.0, float(silence.get("audio_fade_sec", 0.03))),
+            video_fade_sec=max(0.0, float(silence.get("video_fade_sec", 0.0))),
+            normalize_audio=bool(silence.get("normalize_audio", False)),
+            target_lufs=float(silence.get("target_lufs", -14.0)),
+            limiter_db=float(silence.get("limiter_db", -1.5)),
+            denoise=bool(silence.get("denoise", False)),
+            creative=creative_payload,
+        )
+        summary = summarize_analysis(
+            source,
+            original_duration_sec=source_duration,
+            selected_start=selected_start,
+            selected_end=selected_end,
+            cuts=render_cuts,
+            threshold_db=float(silence.get("threshold_db", -35.0)),
+            min_silence_sec=float(silence.get("min_silence_sec", 0.5)),
+            edge_padding_sec=float(silence.get("edge_padding_sec", 0.08)),
+        )
+        transition_overlap = round(sum(transition_durations), 3)
+        summary["transition_overlap_sec"] = transition_overlap
+        finished_duration = round(
+            max(0.0, float(summary["estimated_duration_sec"]) - transition_overlap),
+            3,
+        )
+        summary["finished_duration_sec"] = finished_duration
+        output_meta = {
+            **project,
+            **summary,
+            "manifest_version": max(6, int(project.get("manifest_version") or 0)),
+            "kind": "longform",
+            "source": source,
+            "source_duration_sec": source_duration,
+            "selected_range": {"start": selected_start, "end": selected_end},
+            "silence": {
+                **silence,
+                "enabled": silence_enabled,
+                "audio_fade_sec": max(0.0, float(silence.get("audio_fade_sec", 0.03))),
+                "video_fade_sec": max(0.0, float(silence.get("video_fade_sec", 0.0))),
+                "normalize_audio": bool(silence.get("normalize_audio", False)),
+                "target_lufs": float(silence.get("target_lufs", -14.0)),
+                "limiter_db": float(silence.get("limiter_db", -1.5)),
+                "denoise": bool(silence.get("denoise", False)),
+            },
+            "cuts": cuts,
+            "creative": {
+                **{
+                    key: value
+                    for key, value in creative_payload.items()
+                    if key not in {
+                        "musicPath",
+                        "broll",
+                        "transitions",
+                        "color",
+                        "multicam",
+                        "colorWorkflow",
+                        "renderSequence",
+                    }
+                },
+                "broll": [
+                    {key: value for key, value in item.items() if key != "path"}
+                    for item in creative_payload.get("broll", [])
+                    if isinstance(item, dict)
+                ],
+                "transitions": [
+                    {
+                        key: value
+                        for key, value in item.items()
+                        if key not in {"joinIndex", "ffmpegKind"}
+                    }
+                    for item in creative_payload.get("transitions", [])
+                    if isinstance(item, dict)
+                ],
+                "color": {
+                    key: value
+                    for key, value in (creative_payload.get("color") or {}).items()
+                    if key != "lutPath"
+                },
+                "colorWorkflow": {
+                    **{
+                        key: value
+                        for key, value in (creative_payload.get("colorWorkflow") or {}).items()
+                        if key != "groups"
+                    },
+                    "groups": [
+                        {
+                            **{
+                                key: value
+                                for key, value in group.items()
+                                if key != "grade"
+                            },
+                            "grade": {
+                                key: value
+                                for key, value in (group.get("grade") or {}).items()
+                                if key != "lutPath"
+                            },
+                        }
+                        for group in (creative_payload.get("colorWorkflow") or {}).get("groups", [])
+                        if isinstance(group, dict)
+                    ],
+                },
+                "multicam": {
+                    **{
+                        key: value
+                        for key, value in (creative_payload.get("multicam") or {}).items()
+                        if key != "angles"
+                    },
+                    "angles": [
+                        {key: value for key, value in item.items() if key != "path"}
+                        for item in (creative_payload.get("multicam") or {}).get("angles", [])
+                        if isinstance(item, dict)
+                    ],
+                },
+            },
+            "asset_project": project.get("asset_project"),
+            "duration": finished_duration,
+            "output_duration": finished_duration,
+            "video_encoder": RUNTIME_HARDWARE.get("resolved_video_encoder") or "cpu",
+            "compute_backend": RUNTIME_HARDWARE.get("resolved_compute", "cpu"),
+        }
+        sidecars = write_longform_sidecars(
+            output_path,
+            words=output_meta.get("words", []),
+            chapters=output_meta.get("chapters", []),
+            keep_segments=[
+                {"start": start, "end": end, "duration": end - start}
+                for start, end in segments
+            ],
+            transition_durations=transition_durations,
+            caption_cues=(creative_payload.get("captions") or {}).get("cues"),
+        )
+        output_meta["sidecars"] = {
+            kind: os.path.basename(sidecar_path) for kind, sidecar_path in sidecars.items()
+        }
+        with open(output_path.replace(".mp4", ".json"), "w", encoding="utf-8") as handle:
+            json.dump(output_meta, handle, indent=2)
+        print(f"✅ Long-form edit complete: {output_path}")
+        return
+
+    if args.mode == "shorts-more":
+        if not args.candidate_manifest:
+            raise ValueError("--candidate-manifest is required for shorts-more mode")
+        render_more_from_candidate_manifest(
+            args.candidate_manifest,
+            args.generate_more_count,
+            args,
+            candidate_ids=[value.strip() for value in args.candidate_ids.split(",") if value.strip()],
+        )
         return
 
     # 1. Download
@@ -2805,7 +5971,7 @@ def main():
 
                     print("  > Merging video + audio with re-encode for compatibility...")
                     subprocess.run([
-                        "ffmpeg", "-y", "-v", "error",
+                        RUNTIME_HARDWARE["ffmpeg_bin"], "-y", "-v", "error",
                         "-i", v_path, "-i", a_path,
                         "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                         "-c:a", "aac", "-b:a", "192k",
@@ -2868,37 +6034,41 @@ def main():
     # 4. Transcription & Segmentation
     if args.mode == "longform":
         # Longform needs ALL active speech segments (no viral scoring)
-        print(f"🎙️ Transcribing for longform...")
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"  > Using Device: {device.upper()}")
-        _model_name = CONFIG['transcription']['model_size']
-        _model_cache = os.path.expanduser(f"~/.cache/whisper/{_model_name}.pt")
-        model = whisper.load_model(_model_cache if os.path.isfile(_model_cache) else _model_name, device=device)
-        result = model.transcribe(proxy_path, verbose=False, word_timestamps=True)
-        del model
-        if device == "cuda":
-            torch.cuda.empty_cache()
+        print("🎙️ Transcribing for longform...")
+        result = transcribe_source(proxy_path)
 
         transcript_words = collect_word_timestamps(result["segments"])
-        active_segments, longform_cfg = build_longform_segments(
-            result["segments"],
-            start_time,
-            end_time,
-            words=transcript_words,
+        longform_cfg = get_longform_config()
+        print("🔊 Analyzing acoustic silence for the editable long-form timeline...")
+        acoustic_analysis = analyze_source(
+            video_path,
+            threshold_db=longform_cfg["silence_threshold_db"],
+            min_silence_sec=longform_cfg["min_silence_to_cut_sec"],
+            edge_padding_sec=longform_cfg["edge_pad_sec"],
+            selected_start=start_time,
+            selected_end=end_time,
+            ffmpeg_bin=RUNTIME_HARDWARE["ffmpeg_bin"],
+            ffprobe_bin=RUNTIME_HARDWARE["ffprobe_bin"],
         )
+        silence_cuts = [dict(cut) for cut in acoustic_analysis.get("cuts", [])]
+        active_segments = [
+            (float(segment["start"]), float(segment["end"]))
+            for segment in acoustic_analysis.get("keep_segments", [])
+        ]
         print(
-            "  > Longform smoothing:"
+            "  > Long-form removal: acoustic silencedetect,"
             f" min_silence_to_cut={longform_cfg['min_silence_to_cut_sec']:.2f}s,"
             f" edge_pad={longform_cfg['edge_pad_sec']:.2f}s,"
-            f" word_snap={longform_cfg['word_snap_window_sec']:.2f}s,"
-            f" audio_fade={longform_cfg['audio_fade_sec']:.2f}s"
+            f" audio_fade={longform_cfg['audio_fade_sec']:.2f}s,"
+            f" video_fade={longform_cfg['video_fade_sec']:.2f}s"
         )
         if not active_segments:
-            raise RuntimeError("No active speech segments found in the selected time range")
+            raise RuntimeError("Silence removal would remove the entire selected long-form range")
         
         # Render Master Timeline
-        output_name = f"longform_master_{'8k' if args.upscale else 'native'}.mp4"
+        output_name = f"longform_master_{'8k' if args.upscale else 'native'}_{int(time.time())}.mp4"
         output_path = os.path.join(OUTPUT_DIR, output_name)
+        persistent_source_path = persist_source_video(video_path)
         render_longform(
             video_path,
             active_segments,
@@ -2908,44 +6078,116 @@ def main():
             src_h,
             args.upscale,
             audio_fade_sec=longform_cfg["audio_fade_sec"],
+            video_fade_sec=longform_cfg["video_fade_sec"],
         )
+        source_duration = video_duration if video_duration > 0 else end_time
+        longform_summary = summarize_analysis(
+            persistent_source_path,
+            original_duration_sec=source_duration,
+            selected_start=start_time,
+            selected_end=end_time,
+            cuts=silence_cuts,
+            threshold_db=longform_cfg["silence_threshold_db"],
+            min_silence_sec=longform_cfg["min_silence_to_cut_sec"],
+            edge_padding_sec=longform_cfg["edge_pad_sec"],
+        )
+        longform_meta = {
+            **longform_summary,
+            "manifest_version": 4,
+            "kind": "longform",
+            "source": persistent_source_path,
+            "source_duration_sec": source_duration,
+            "selected_range": {"start": start_time, "end": end_time},
+            "silence": {
+                "enabled": True,
+                "threshold_db": longform_cfg["silence_threshold_db"],
+                "min_silence_sec": longform_cfg["min_silence_to_cut_sec"],
+                "edge_padding_sec": longform_cfg["edge_pad_sec"],
+                "audio_fade_sec": longform_cfg["audio_fade_sec"],
+                "video_fade_sec": longform_cfg["video_fade_sec"],
+            },
+            "cuts": silence_cuts,
+            "keep_segments": [
+                {"start": start, "end": end, "duration": end - start}
+                for start, end in active_segments
+            ],
+            "duration": sum(end - start for start, end in active_segments),
+            "output_duration": sum(end - start for start, end in active_segments),
+            "video_encoder": RUNTIME_HARDWARE.get("resolved_video_encoder") or "cpu",
+            "compute_backend": RUNTIME_HARDWARE.get("resolved_compute", "cpu"),
+            "transcription_provider": RUNTIME_HARDWARE.get("resolved_transcription_provider"),
+            "transcription_model": RUNTIME_HARDWARE.get("transcription_model") or CONFIG["transcription"]["model_size"],
+            "topics": RUNTIME_HARDWARE.get("transcription_topics", []),
+            "words": transcript_words,
+            "upscale": bool(args.upscale),
+        }
+        sidecars = write_longform_sidecars(
+            output_path,
+            words=transcript_words,
+            chapters=longform_meta.get("chapters", []),
+            keep_segments=[{"start": start, "end": end} for start, end in active_segments],
+        )
+        longform_meta["sidecars"] = {
+            kind: os.path.basename(sidecar_path) for kind, sidecar_path in sidecars.items()
+        }
+        with open(output_path.replace(".mp4", ".json"), "w", encoding="utf-8") as handle:
+            json.dump(longform_meta, handle, indent=2)
         print(f"✅ Longform Export: {output_path}")
         
     else:
         # Shorts Mode — analyze_transcript handles its own Whisper call
         # (with word_timestamps=True for subtitle rendering)
-        clips = analyze_transcript(proxy_path)
-
-        # Apply optional segment window filter in shorts mode
-        clips = [
-            c for c in clips
-            if c['end'] > start_time and c['start'] < end_time
-        ]
-        for c in clips:
-            c['start'] = max(c['start'], start_time)
-            c['end'] = min(c['end'], end_time)
+        analysis_result = analyze_transcript(
+            proxy_path,
+            analysis_start=start_time,
+            analysis_end=end_time,
+        )
+        clips = list(analysis_result.get("selected", []))
+        reserves = list(analysis_result.get("reserves", []))
 
         if clips:
-            print(f"🎯 Found {len(clips)} viral clips! Rendering...")
+            persistent_source_path = persist_source_video(video_path)
+            manifest_path = write_candidate_manifest(persistent_source_path, analysis_result, args)
+            if args.mode == "shorts-analyze":
+                print(
+                    f"Review ready: {len(clips)} primary and {len(reserves)} alternate candidate(s)"
+                )
+                print(f"  > Candidate manifest: {manifest_path}")
+                return
+            print(
+                f"🎯 Selected {len(clips)} Shorts with {len(reserves)} render reserve(s)."
+                " Rendering the primary batch..."
+            )
             subtitle_style = args.subtitle_style if hasattr(args, 'subtitle_style') else 'classic'
             exported = 0
-            persistent_source_path = persist_source_video(video_path)
-            for i, clip in enumerate(clips):
-                print(f"\n📎 Clip {i+1}/{len(clips)} | Score: {clip['score']:.1f} | Duration: {clip['end']-clip['start']:.1f}s")
-                print(f"   Reasons: {', '.join(clip.get('reasons', []))}")
-                frame_layout = analyze_speaker_layout(
-                    proxy_path,
-                    clip['start'],
-                    sample_duration=3,
-                    framing_mode=args.framing_mode,
-                    clip_end_time=clip['end'],
+            render_queue = [*clips, *reserves]
+            desired_exports = len(clips)
+            for attempt_index, clip in enumerate(render_queue):
+                if exported >= desired_exports:
+                    break
+                candidate_id = str(clip.get("yield_id") or clip.get("id") or f"candidate-{attempt_index}")
+                tier = str(clip.get("confidence_tier") or clip.get("yield_tier") or "review").replace("_", " ")
+                role = "reserve backfill" if attempt_index >= len(clips) else "primary"
+                print(
+                    f"\n📎 Clip attempt {attempt_index + 1}/{len(render_queue)}"
+                    f" | {tier.title()} | {role} | Score: {clip['score']:.1f}"
+                    f" | Duration: {clip['end']-clip['start']:.1f}s"
                 )
+                print(f"   Reasons: {', '.join(clip.get('reasons', []))}")
                 try:
+                    frame_layout = analyze_speaker_layout(
+                        proxy_path,
+                        clip['start'],
+                        sample_duration=3,
+                        framing_mode=args.framing_mode,
+                        clip_end_time=clip['end'],
+                        clip_words=clip.get('words', []),
+                    )
                     render_clip(
                         video_path,
                         clip,
                         frame_layout,
-                        i,
+                        exported,
                         is_hdr,
                         args.upscale,
                         subtitle_style,
@@ -2953,14 +6195,24 @@ def main():
                         metadata_source_path=persistent_source_path,
                     )
                     exported += 1
+                    update_candidate_manifest(manifest_path, exported_id=candidate_id)
                 except Exception as clip_err:
-                    print(f"  ❌ Clip {i+1} failed: {clip_err} — skipping")
-            print(f"\n✅ Done! {exported}/{len(clips)} clips exported to {OUTPUT_DIR}/")
+                    update_candidate_manifest(manifest_path, failed_id=candidate_id)
+                    print(f"  ❌ Candidate {candidate_id} failed: {clip_err} — trying the next reserve")
+            unfilled = max(0, desired_exports - exported)
+            print(f"\n✅ Done! {exported}/{desired_exports} selected clips exported to {OUTPUT_DIR}/")
+            if unfilled:
+                print(f"  ⚠️  {unfilled} export slot(s) remain unfilled after exhausting render reserves")
+            print(f"  > Candidate manifest saved for Generate More: {manifest_path}")
         else:
             print("❌ No viral clips found.")
             print(f"   Source: {src_w}x{src_h} | Window: {start_time:.1f}s-{end_time:.1f}s")
-            print(f"   Config: min_dur={CONFIG['selection']['min_clip_duration']}s, max_dur={CONFIG['selection']['max_clip_duration']}s, min_score={CONFIG['selection']['viral_min_score']}")
-            print("   Tip: Check if the video has clear speech or widen the selected time segment.")
+            print(
+                f"   Config: min_dur={CONFIG['selection']['min_clip_duration']}s,"
+                f" max_dur={CONFIG['selection']['max_clip_duration']}s,"
+                f" volume={RUNTIME_HARDWARE.get('clip_volume', 'balanced')}"
+            )
+            print("   Tip: Check for clear speech, widen the selected time range, or use More volume.")
 
 if __name__ == "__main__":
     try:

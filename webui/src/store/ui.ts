@@ -37,6 +37,19 @@ export const useUIStore = create<UIState>()(
       keepAwake: true,
       setKeepAwake: (v) => set({ keepAwake: v }),
     }),
-    { name: 'vcf-ui-prefs' },
+    {
+      name: 'vcf-ui-prefs',
+      merge: (persisted, current) => {
+        const saved = (persisted || {}) as Partial<UIState>;
+        return {
+          ...current,
+          ...saved,
+          uploadDefaults: {
+            ...DEFAULT_RENDER_SETTINGS,
+            ...(saved.uploadDefaults || {}),
+          },
+        };
+      },
+    },
   ),
 );

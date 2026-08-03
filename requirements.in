@@ -1,0 +1,13 @@
+# PyTorch is installed separately by the platform setup scripts so CUDA, ROCm,
+# and CPU builds never overwrite one another.
+openai-whisper
+opencv-python
+numpy
+pyaaf2==1.7.1
+PyYAML
+face-recognition
+ultralytics
+librosa
+yt-dlp
+pytubefix
+setuptools<81

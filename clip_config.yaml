@@ -1,6 +1,9 @@
 # Config for Viral Factory
 processing:
   gpu_acceleration: true
+  compute_device: "auto"
+  video_encoder: "auto"
+  vaapi_device: "/dev/dri/renderD128"
   proxy_resolution: "1920x1080"
   output_resolution: [1080, 1920]
 
@@ -15,9 +18,12 @@ transcription:
 longform:
   min_segment_sec: 0.5
   min_silence_to_cut_sec: 0.5
+  silence_threshold_db: -35
   edge_pad_sec: 0.08
   word_snap_window_sec: 0.35
   audio_fade_sec: 0.03
+  # A hard picture cut avoids a black flash. Audio still receives a microfade.
+  video_fade_sec: 0.0
 
 # VIRAL DETECTION KEYWORDS
 # Organized by category for better coverage
@@ -561,13 +567,9 @@ keywords:
   - "as we speak"
 
 selection:
-  candidate_min_score: 1.8   # Segment recall floor before reranking
-  viral_min_score: 6.5       # Clip-level floor after reranking
-  relative_score_floor: 0.6  # Keep clips within 60% of the top score
-  min_top_clips_to_keep: 3   # Avoid returning zero clips on weak source videos
   min_clip_duration: 6       # Allow shorter clips (6s minimum)
   max_clip_duration: 180     # Up to 3 minutes
-  max_clips_to_export: 50    # Export up to 50 clips per video
+  max_clips_to_export: 50    # Hard cap; yield mode determines the target batch
 
 scoring:
   output_scale: 15
@@ -582,6 +584,19 @@ scoring:
       clarity: 0.04
 
 tracking:
-  model: "yolov8n-face.pt"
+  model: "yolov8n.pt"
   smoothing: 0.1
   zoom_factor: 1.1
+  smart_switch:
+    motion_threshold: 0.8
+    confirmation_frames: 1
+    switch_confirm_frames: 2
+    min_hold_sec: 1.2
+    crop_face_height_multiplier: 2.15
+    # Place a detected face near the upper-middle of the 9:16 crop.  The old
+    # 0.66 value pushed faces down and exposed conferencing-app header bars.
+    crop_face_vertical_position: 0.44
+    min_crop_height_ratio: 0.42
+    max_crop_height_ratio: 1.0
+    active_border_min_strength: 0.25
+    active_border_motion_bonus: 6.0

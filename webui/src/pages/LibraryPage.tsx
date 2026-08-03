@@ -3,7 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Filter, SortDesc, Trash2, Download, RefreshCcw, PencilRuler,
-  Captions, FileDown, Loader2, Check, X, ChevronDown,
+  Captions, Loader2, Check, ChevronDown, Film, Scissors, PlusCircle, Trophy,
+  Clapperboard,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { api, type ClipSummary } from '@/api/client';
@@ -21,6 +22,7 @@ export function LibraryPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [minScore, setMinScore] = useState<number>(0);
   const [showFilters, setShowFilters] = useState(false);
+  const [generateMessage, setGenerateMessage] = useState<string | null>(null);
 
   // Toggle selection
   function toggle(name: string) {
@@ -32,7 +34,7 @@ export function LibraryPage() {
     });
   }
   function selectAll(filtered: ClipSummary[]) {
-    setSelected(new Set(filtered.map((c) => c.name)));
+    setSelected(new Set(filtered.filter((c) => c.kind !== 'longform' && c.sourceKind !== 'action_compilation').map((c) => c.name)));
   }
   function clearSelection() { setSelected(new Set()); }
 
@@ -40,11 +42,11 @@ export function LibraryPage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return clips
-      .filter((c) => parseFloat(String(c.score)) >= minScore)
-      .filter((c) => !q || c.name.toLowerCase().includes(q) || (c.reasons || []).some((r) => r.toLowerCase().includes(q)))
+      .filter((c) => c.kind === 'longform' || parseFloat(String(c.score)) >= minScore)
+      .filter((c) => !q || c.name.toLowerCase().includes(q) || (c.reasons || []).some((r) => r.toLowerCase().includes(q)) || (c.topics || []).some((topic) => topic.toLowerCase().includes(q)))
       .sort((a, b) => {
-        const sa = parseFloat(String(a.score));
-        const sb = parseFloat(String(b.score));
+        const sa = Number.isFinite(parseFloat(String(a.score))) ? parseFloat(String(a.score)) : -1;
+        const sb = Number.isFinite(parseFloat(String(b.score))) ? parseFloat(String(b.score)) : -1;
         switch (sort) {
           case 'score-desc': return sb - sa;
           case 'score-asc':  return sa - sb;
@@ -68,25 +70,49 @@ export function LibraryPage() {
       qc.invalidateQueries({ queryKey: ['job-status'] });
     },
   });
+  const generateMore = useMutation({
+    mutationFn: (name: string) => api.generateMoreClips(name, 5),
+    onSuccess: (result) => {
+      setGenerateMessage(`${result.requested} additional Shorts queued from the saved analysis.`);
+      qc.invalidateQueries({ queryKey: ['job-status'] });
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+    },
+  });
 
   function openEditor(name: string) {
-    navigate(`/editor/${encodeURIComponent(name)}`);
+    const clip = clips.find((item) => item.name === name);
+    navigate(clip?.kind === 'longform'
+      ? `/longform-editor/${encodeURIComponent(name)}`
+      : `/editor/${encodeURIComponent(name)}`);
   }
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 space-y-5">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
+      <header className="flex min-w-0 items-end justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-3xl font-black tracking-tight text-white">Library</h1>
-          <p className="mt-1 text-sm text-slate-400">{clips.length} clips · sorted by viral score</p>
+          <p className="mt-1 text-sm text-slate-400">{clips.length} exports · shorts and long-form masters</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <button className="btn-ghost" onClick={() => refetch()}>
             <RefreshCcw className={clsx('h-4 w-4', isFetching && 'animate-spin')} />
             <span className="hidden sm:inline">Refresh</span>
           </button>
         </div>
       </header>
+
+      {(generateMessage || generateMore.isError) && (
+        <div className={clsx(
+          'break-words rounded-xl border px-4 py-3 text-sm [overflow-wrap:anywhere]',
+          generateMore.isError
+            ? 'border-red-500/25 bg-red-500/10 text-red-200'
+            : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200',
+        )}>
+          {generateMore.isError
+            ? (generateMore.error instanceof Error ? generateMore.error.message : 'Generate More could not be queued.')
+            : generateMessage}
+        </div>
+      )}
 
       {/* Toolbar */}
       <div className="panel p-3 sm:p-4 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -100,7 +126,7 @@ export function LibraryPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-start">
           <button
             className="btn-secondary"
             onClick={() => setShowFilters((s) => !s)}
@@ -186,7 +212,7 @@ export function LibraryPage() {
       ) : filtered.length === 0 ? (
         <EmptyState hasClips={clips.length > 0} />
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {filtered.map((clip, idx) => (
             <ClipCard
               key={clip.name}
@@ -195,6 +221,8 @@ export function LibraryPage() {
               selected={selected.has(clip.name)}
               onToggle={() => toggle(clip.name)}
               onEdit={() => openEditor(clip.name)}
+              onGenerateMore={() => generateMore.mutate(clip.name)}
+              generatePending={generateMore.isPending}
               onDelete={async () => {
                 if (confirm('Delete this clip?')) {
                   await api.deleteClip(clip.name);
@@ -218,7 +246,7 @@ function SortMenu({ sort, onChange }: { sort: SortKey; onChange: (k: SortKey) =>
         <span className="hidden sm:inline">Sort</span>
         <ChevronDown className="h-3 w-3" />
       </button>
-      <div className="absolute right-0 mt-1 hidden group-hover:block hover:block z-20 w-48 rounded-lg border border-white/10 bg-bg-elev shadow-2xl">
+      <div className="absolute right-0 z-20 mt-1 hidden w-48 max-w-[calc(100vw-2rem)] rounded-lg border border-white/10 bg-bg-elev shadow-2xl group-hover:block hover:block">
         {([
           ['score-desc', 'Highest score first'],
           ['score-asc',  'Lowest score first'],
@@ -261,7 +289,7 @@ function EmptyState({ hasClips }: { hasClips: boolean }) {
 }
 
 function ClipCard({
-  clip, rank, selected, onToggle, onEdit, onDelete, active,
+  clip, rank, selected, onToggle, onEdit, onDelete, onGenerateMore, generatePending, active,
 }: {
   clip: ClipSummary;
   rank: number;
@@ -269,6 +297,8 @@ function ClipCard({
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onGenerateMore: () => void;
+  generatePending: boolean;
   active?: boolean;
 }) {
   const score = parseFloat(String(clip.score));
@@ -276,6 +306,8 @@ function ClipCard({
     score >= 10 ? 'from-pink-500 to-orange-500'
     : score >= 7.5 ? 'from-purple-500 to-pink-500'
     : 'from-blue-500 to-purple-500';
+  const isMontage = clip.sourceKind === 'action_compilation';
+  const isHorizontalMontage = isMontage && clip.kind === 'longform';
   const [thumbFailed, setThumbFailed] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -313,7 +345,7 @@ function ClipCard({
       )}
     >
       {/* Media */}
-      <div className="relative aspect-[9/16] bg-black">
+      <div className={clsx('relative bg-black', clip.kind === 'longform' ? 'aspect-video' : 'aspect-[9/16]')}>
         {!thumbFailed ? (
           <img
             src={api.clipThumbnailUrl(clip.name)}
@@ -326,20 +358,23 @@ function ClipCard({
         <video
           ref={videoRef}
           src={clip.url}
-          className="absolute inset-0 h-full w-full object-cover opacity-0 group-hover:opacity-100 transition"
+          className={clsx(
+            'absolute inset-0 h-full w-full opacity-0 group-hover:opacity-100 transition',
+            clip.kind === 'longform' ? 'object-contain' : 'object-cover',
+          )}
           controls
           preload="none"
           playsInline
           muted
         />
         {/* Top-N badge */}
-        {rank <= 3 && (
+        {clip.kind !== 'longform' && clip.sourceKind !== 'action_compilation' && rank <= 3 && (
           <div className={clsx('absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-gradient-to-r px-2 py-0.5 text-[10px] font-black text-white shadow-lg', scoreColor)}>
-            🏆 TOP {rank}
+            <Trophy className="h-3 w-3" /> TOP {rank}
           </div>
         )}
         {/* Selection checkbox */}
-        <button
+        {clip.kind !== 'longform' && clip.sourceKind !== 'action_compilation' && <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
           className={clsx(
@@ -351,45 +386,95 @@ function ClipCard({
           aria-label={selected ? 'Deselect' : 'Select'}
         >
           {selected ? <Check className="h-3.5 w-3.5" /> : null}
-        </button>
+        </button>}
         {/* Score badge */}
         <div className="absolute bottom-2 left-2">
-          <div className={clsx('inline-flex items-center gap-1 rounded-full bg-gradient-to-r px-2 py-0.5 text-xs font-black text-white shadow-lg', scoreColor)}>
-            🔥 {isNaN(score) ? clip.score : score.toFixed(1)}
+          <div className={clsx(
+            'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-black text-white shadow-lg',
+            clip.kind === 'longform' ? 'bg-slate-800/90 ring-1 ring-white/15' : `bg-gradient-to-r ${scoreColor}`,
+          )}>
+            {clip.kind === 'longform'
+              ? <><Film className="h-3 w-3" /> {isHorizontalMontage ? 'LONG MONTAGE' : 'LONG FORM'}</>
+              : (isNaN(score) ? clip.score : score.toFixed(1))}
           </div>
         </div>
         {/* Bake / Raw badge (bottom-right, opposite the score) */}
-        <div className="absolute bottom-2 right-2">
+        {(isMontage || clip.kind !== 'longform') && <div className="absolute bottom-2 right-2">
           <div
             className={clsx(
               'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold shadow-lg backdrop-blur',
-              clip.baked
+              isMontage
+                ? 'bg-fuchsia-500/85 text-white ring-1 ring-fuchsia-300/40'
+                : clip.baked
                 ? 'bg-emerald-500/85 text-white ring-1 ring-emerald-300/40'
                 : 'bg-slate-700/80 text-slate-200 ring-1 ring-white/10',
             )}
-            title={clip.baked
-              ? 'Subtitles baked into this clip — audio + burned-in captions'
-              : 'Raw render — open in Editor and use Apply & Re-render or Bake & Download to burn subtitles'}
+            title={isMontage
+              ? (isHorizontalMontage ? 'Horizontal long-form montage' : 'Vertical wordless multi-source montage')
+              : clip.baked
+                ? 'Subtitles baked into this clip — audio + burned-in captions'
+                : 'Raw render — open in Editor and use Apply & Re-render or Bake & Download to burn subtitles'}
           >
-            {clip.baked ? '🔤 BAKED' : '📹 RAW'}
+            {isMontage
+              ? <><Clapperboard className="h-3 w-3" /> {isHorizontalMontage ? '16:9 MONTAGE' : '9:16 MONTAGE'}</>
+              : clip.baked ? <><Captions className="h-3 w-3" /> BAKED</> : <><Film className="h-3 w-3" /> RAW</>}
           </div>
-        </div>
+        </div>}
       </div>
 
       {/* Body */}
-      <div className="p-3 flex flex-col gap-2">
+      <div className="flex min-w-0 flex-col gap-2 p-3">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
+          {clip.sourceKind === 'action_compilation' && (
+            <span className="max-w-full truncate rounded-full bg-fuchsia-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-fuchsia-200 ring-1 ring-fuchsia-400/20">
+              {clip.compilationName || (isHorizontalMontage ? 'Long-form montage' : 'Action compilation')}
+            </span>
+          )}
+          {clip.kind !== 'longform' && clip.confidenceTier && (
+            <span className={clsx(
+              'max-w-full truncate rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1',
+              clip.confidenceTier === 'best'
+                ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20'
+                : clip.confidenceTier === 'strong'
+                  ? 'bg-sky-500/10 text-sky-300 ring-sky-500/20'
+                  : 'bg-amber-500/10 text-amber-200 ring-amber-500/20',
+            )}>
+              {clip.confidenceTier === 'review' ? 'Worth reviewing' : clip.confidenceTier}
+            </span>
+          )}
+          {clip.exportPreset && (
+            <span className="max-w-full truncate rounded-full bg-white/5 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-slate-400 ring-1 ring-white/5">
+              {clip.exportPreset.replaceAll('_', ' ')}
+            </span>
+          )}
+          {clip.videoEncoder && (
+            <span className="max-w-full truncate rounded-full bg-emerald-500/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-emerald-300 ring-1 ring-emerald-500/20">
+              {clip.videoEncoder}
+            </span>
+          )}
+          {clip.transcriptionProvider && (
+            <span className="max-w-full truncate rounded-full bg-sky-500/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-sky-300 ring-1 ring-sky-500/20">
+              {clip.transcriptionProvider.replaceAll('_', ' ')}
+            </span>
+          )}
+          {clip.topics?.slice(0, 2).map((topic) => (
+            <span key={topic} className="max-w-full truncate rounded-full bg-violet-500/10 px-2 py-0.5 text-[9px] text-violet-300 ring-1 ring-violet-500/20" title={topic}>
+              {topic}
+            </span>
+          ))}
+        </div>
         {clip.rankingVersion && (
           <div className="text-[9px] uppercase tracking-[0.18em] text-slate-500">
             {clip.rankingVersion.replace('_', ' ')}
           </div>
         )}
         {clip.reasons?.length > 0 && (
-          <p className="text-[11px] text-slate-400 line-clamp-2 leading-snug">
+          <p className="break-words text-[11px] leading-snug text-slate-400 line-clamp-2 [overflow-wrap:anywhere]">
             {clip.reasons.slice(0, 3).join(' • ')}
           </p>
         )}
         <p className="text-[10px] font-mono text-slate-500 truncate" title={clip.name}>{clip.name}</p>
-        <div className="mt-1 grid grid-cols-3 gap-1.5">
+        <div className={clsx('mt-1 grid gap-1.5', isMontage ? (isHorizontalMontage ? 'grid-cols-3' : 'grid-cols-2') : clip.canGenerateMore ? 'grid-cols-4' : 'grid-cols-3')}>
           <a
             href={clip.url} download
             className="grid place-items-center rounded-md bg-white/5 py-1.5 text-slate-300 hover:bg-white/10 hover:text-white transition"
@@ -398,14 +483,27 @@ function ClipCard({
           >
             <Download className="h-3.5 w-3.5" />
           </a>
-          <button
-            type="button"
-            onClick={onEdit}
-            className="grid place-items-center rounded-md bg-brand-500/15 py-1.5 text-brand-300 hover:bg-brand-500/25 hover:text-white transition"
-            title="Edit captions"
-          >
-            <PencilRuler className="h-3.5 w-3.5" />
-          </button>
+          {(!isMontage || isHorizontalMontage) && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="grid place-items-center rounded-md bg-brand-500/15 py-1.5 text-brand-300 hover:bg-brand-500/25 hover:text-white transition"
+              title={clip.kind === 'longform' ? 'Edit long-form timeline' : 'Edit captions'}
+            >
+              {clip.kind === 'longform' ? <Scissors className="h-3.5 w-3.5" /> : <PencilRuler className="h-3.5 w-3.5" />}
+            </button>
+          )}
+          {clip.canGenerateMore && (
+            <button
+              type="button"
+              disabled={generatePending}
+              onClick={(event) => { event.stopPropagation(); onGenerateMore(); }}
+              className="grid place-items-center rounded-md bg-emerald-500/10 py-1.5 text-emerald-300 transition hover:bg-emerald-500/20 hover:text-white disabled:opacity-50"
+              title={`Generate 5 more without re-transcribing (${clip.remainingCandidates || 0} candidates remain)`}
+            >
+              {generatePending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlusCircle className="h-3.5 w-3.5" />}
+            </button>
+          )}
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onDelete(); }}

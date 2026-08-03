@@ -1,15 +1,15 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Upload, Link2, FileVideo, Send, ChevronRight, Sparkles, Activity, Flame, TrendingUp, Trophy, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Upload, Link2, FileVideo, Send, ChevronRight, Sparkles, Activity, Flame, TrendingUp, Trophy, Loader2, CheckCircle2, AlertCircle, ListChecks, ShieldCheck, Clapperboard } from 'lucide-react';
 import { clsx } from 'clsx';
-import { api } from '@/api/client';
+import { api, type JobPreflight } from '@/api/client';
 import { useResumableUpload, formatSize } from '@/api/upload';
 import { useActiveJob, useLogs, useClips } from '@/hooks/queries';
 import { useUIStore } from '@/store/ui';
-import { SEGMENT_PRESETS, MAX_DURATIONS, MAX_CLIPS, FRAMING_MODES } from '@/lib/render-options';
+import { CLIP_VOLUME_OPTIONS, SEGMENT_PRESETS, MAX_DURATIONS, MAX_CLIPS, FRAMING_MODES, EXPORT_PRESETS } from '@/lib/render-options';
 import type { RenderSettings, SegmentPreset } from '@/lib/render-options';
-import { STYLE_LIST, PYTHON_STYLE_CHOICES } from '@/lib/subtitle-styles';
+import { STYLE_LIST } from '@/lib/subtitle-styles';
 import { useWakeLock } from '@/hooks/useWakeLock';
 
 export function DashboardPage() {
@@ -28,9 +28,20 @@ export function DashboardPage() {
   const [customEnd, setCustomEnd] = useState('');
   const [url, setUrl] = useState('');
   const [urlPlatform, setUrlPlatform] = useState<string | null>(null);
+  const [launchError, setLaunchError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const { upload, progress, active: uploadActive } = useResumableUpload();
   useWakeLock(uploadActive, keepAwake);
+
+  const preflight = useQuery({
+    queryKey: ['job-preflight', settings],
+    queryFn: () => api.jobPreflight(settings),
+    staleTime: 10_000,
+    retry: 1,
+  });
+  // Starting while the probe is loading or failed would bypass the exact
+  // configuration guard that preflight is meant to provide.
+  const jobReady = preflight.data?.ready === true && !preflight.isError;
 
   const [dropping, setDropping] = useState(false);
 
@@ -89,15 +100,30 @@ export function DashboardPage() {
   });
 
   async function handleFile(file: File) {
-    setUploadDefaults(settings);
-    await upload(file, settings);
-    qc.invalidateQueries({ queryKey: ['job-status'] });
+    if (!jobReady) return;
+    setLaunchError(null);
+    urlMutation.reset();
+    try {
+      setUploadDefaults(settings);
+      await api.saveSettings(settings);
+      await upload(file, settings);
+      qc.invalidateQueries({ queryKey: ['job-status'] });
+    } catch (error) {
+      setLaunchError(error instanceof Error ? error.message : 'Unable to save the job settings');
+    }
   }
 
-  function handleUrlSubmit() {
-    if (!url) return;
-    setUploadDefaults(settings);
-    urlMutation.mutate({ url, ...settings });
+  async function handleUrlSubmit() {
+    if (!url || !jobReady) return;
+    setLaunchError(null);
+    urlMutation.reset();
+    try {
+      setUploadDefaults(settings);
+      await api.saveSettings(settings);
+      urlMutation.mutate({ url, ...settings });
+    } catch (error) {
+      setLaunchError(error instanceof Error ? error.message : 'Unable to save the job settings');
+    }
   }
 
   return (
@@ -108,19 +134,22 @@ export function DashboardPage() {
             <span className="gradient-text">Viral Clip</span>{' '}
             <span className="text-white">Factory</span>
           </h1>
-          <p className="mt-1 text-sm text-slate-400">AI-powered short-form content generator. Whisper · YOLO · NVENC.</p>
+          <p className="mt-1 text-sm text-slate-400">Local-first transcription, speaker tracking, and multi-signal viral moment detection.</p>
         </div>
-        <Link
-          to="/library"
-          className="btn-secondary self-start sm:self-auto"
-        >
-          View Library
-          <ChevronRight className="h-4 w-4" />
-        </Link>
+        <div className="flex flex-wrap gap-2 self-start sm:self-auto">
+          <Link to="/compilations" className="btn-primary">
+            <Clapperboard className="h-4 w-4" />
+            Create a Montage
+          </Link>
+          <Link to="/library" className="btn-secondary">
+            View Library
+            <ChevronRight className="h-4 w-4" />
+          </Link>
+        </div>
       </header>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
           icon={<Flame className="h-4 w-4" />}
           label="Total Clips"
@@ -148,9 +177,9 @@ export function DashboardPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-3">
         {/* Render Wizard */}
-        <section className="panel p-5 lg:col-span-1 space-y-4">
+        <section className="panel min-w-0 space-y-4 p-5 xl:col-span-1">
           <header className="flex items-center justify-between">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-accent-pink" /> New Render
@@ -178,8 +207,45 @@ export function DashboardPage() {
                   {m === 'shorts' ? 'Shorts 9:16' : 'Long 16:9'}
                 </button>
               ))}
+              <Link
+                to="/compilations"
+                className="col-span-2 flex min-h-14 items-center gap-3 rounded-lg bg-gradient-to-r from-fuchsia-500/20 via-violet-500/15 to-cyan-500/10 px-3 py-2.5 text-left text-white ring-1 ring-fuchsia-400/35 transition hover:ring-fuchsia-300/60"
+              >
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-fuchsia-500/20 text-fuchsia-200 ring-1 ring-fuchsia-300/25">
+                  <Clapperboard className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-bold">Short or Long-Form Montage</span>
+                  <span className="mt-0.5 block text-[10px] leading-4 text-slate-400">Combine short clips or long videos into a vertical 9:16 or horizontal 16:9 edit</span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-fuchsia-200" />
+              </Link>
             </div>
           </div>
+
+          {settings.mode === 'shorts' && (
+            <div>
+              <div className="label">Export Target</div>
+              <select
+                className="input"
+                value={settings.exportPreset}
+                onChange={(e) => {
+                  const exportPreset = e.target.value as RenderSettings['exportPreset'];
+                  const target = EXPORT_PRESETS.find((item) => item.id === exportPreset);
+                  setSettings((current) => ({
+                    ...current,
+                    exportPreset,
+                    maxDuration: target?.defaultMaxDuration || current.maxDuration,
+                  }));
+                }}
+              >
+                {EXPORT_PRESETS.map((target) => <option key={target.id} value={target.id}>{target.label}</option>)}
+              </select>
+              <p className="mt-1 text-[11px] text-slate-500">
+                {EXPORT_PRESETS.find((item) => item.id === settings.exportPreset)?.detail}
+              </p>
+            </div>
+          )}
 
           {settings.mode === 'shorts' && (
             <div>
@@ -205,52 +271,224 @@ export function DashboardPage() {
             </div>
           )}
 
-          {/* Max Duration */}
-          <div>
-            <div className="label">Max Clip Duration</div>
-            <div className="grid grid-cols-4 gap-1.5">
-              {MAX_DURATIONS.map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => update('maxDuration', d)}
-                  className={clsx(
-                    'rounded-md px-2 py-1.5 text-xs font-semibold transition',
-                    settings.maxDuration === d
-                      ? 'bg-brand-500/25 text-white ring-1 ring-brand-500/40'
-                      : 'bg-white/5 text-slate-300 hover:bg-white/10 ring-1 ring-white/5',
-                  )}
-                >
-                  {d >= 60 ? `${d / 60} min` : `${d}s`}
-                </button>
-              ))}
+          {settings.mode === 'shorts' && (
+            <>
+              {/* Max Duration */}
+              <div>
+                <div className="label">Max Clip Duration</div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {MAX_DURATIONS.map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => update('maxDuration', d)}
+                      className={clsx(
+                        'rounded-md px-2 py-1.5 text-xs font-semibold transition',
+                        settings.maxDuration === d
+                          ? 'bg-brand-500/25 text-white ring-1 ring-brand-500/40'
+                          : 'bg-white/5 text-slate-300 hover:bg-white/10 ring-1 ring-white/5',
+                      )}
+                    >
+                      {d >= 60 ? `${d / 60} min` : `${d}s`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Clip volume */}
+              <div className="space-y-3">
+                <div>
+                  <div className="label">Clip Volume</div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {CLIP_VOLUME_OPTIONS.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => update('clipVolume', option.id)}
+                        aria-pressed={settings.clipVolume === option.id}
+                        className={clsx(
+                          'min-h-12 rounded-md px-2.5 py-2 text-left transition',
+                          settings.clipVolume === option.id
+                            ? 'bg-accent-pink/20 text-white ring-1 ring-accent-pink/45'
+                            : 'bg-white/5 text-slate-300 hover:bg-white/10 ring-1 ring-white/5',
+                        )}
+                      >
+                        <span className="block text-xs font-bold">{option.label}</span>
+                        <span className="mt-0.5 block text-[10px] leading-tight text-slate-500">{option.detail}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+                    Balanced returns a useful review set; More favors coverage over a strict score cutoff.
+                  </p>
+                </div>
+
+                {settings.clipVolume === 'exact' && (
+                  <div>
+                    <label className="label" htmlFor="target-clips">Target Clips</label>
+                    <input
+                      id="target-clips"
+                      className="input"
+                      type="number"
+                      min={1}
+                      max={settings.maxClips}
+                      value={settings.targetClips}
+                      onChange={(e) => update('targetClips', Math.min(settings.maxClips, Math.max(1, Number.parseInt(e.target.value, 10) || 1)))}
+                    />
+                    <p className="mt-1 text-[10px] text-slate-500">The factory aims for this many distinct clips when enough material is available.</p>
+                  </div>
+                )}
+
+                <div>
+                  <div className="label">Hard Export Cap</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {MAX_CLIPS.map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setSettings((current) => ({
+                          ...current,
+                          maxClips: n,
+                          targetClips: Math.min(current.targetClips, n),
+                        }))}
+                        className={clsx(
+                          'h-8 w-10 rounded-md text-xs font-bold transition',
+                          settings.maxClips === n
+                            ? 'bg-accent-pink/30 text-white ring-1 ring-accent-pink/50'
+                            : 'bg-white/5 text-slate-300 hover:bg-white/10 ring-1 ring-white/5',
+                        )}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-[10px] text-slate-500">Rendering never exceeds this number, regardless of volume mode.</p>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Transcription and viral intelligence */}
+          <div className="space-y-3 rounded-lg border border-white/5 bg-black/20 p-3">
+            <div>
+              <div className="label">Transcription Engine</div>
+              <select
+                className="input"
+                value={settings.transcriptionProvider}
+                onChange={(e) => update('transcriptionProvider', e.target.value as RenderSettings['transcriptionProvider'])}
+              >
+                <option value="auto">Auto · local</option>
+                <option value="openai_whisper">PyTorch Whisper · local</option>
+                <option value="whisper_cpp">whisper.cpp · local</option>
+                <option value="deepgram">Deepgram Nova-3 · cloud</option>
+              </select>
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                {settings.transcriptionProvider === 'deepgram'
+                  ? 'Cloud option: the source audio is sent to Deepgram.'
+                  : 'Runs locally. Auto prefers the best configured local backend.'}
+              </p>
             </div>
+            {settings.transcriptionProvider !== 'deepgram' && (
+              <>
+                <div>
+                  <div className="label">Transcription Pass</div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      className={clsx('rounded-md px-3 py-2 text-left transition', settings.transcriptionPreset === 'draft' ? 'bg-white/10 text-white ring-1 ring-white/15' : 'bg-white/[0.03] text-slate-400')}
+                      onClick={() => setSettings((current) => ({ ...current, transcriptionPreset: 'draft', transcriptionModel: 'turbo' }))}
+                    >
+                      <span className="block text-xs font-semibold">Draft</span>
+                      <span className="block text-[10px] text-slate-500">Fast review pass</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={clsx('rounded-md px-3 py-2 text-left transition', settings.transcriptionPreset === 'final' ? 'bg-emerald-500/10 text-white ring-1 ring-emerald-400/20' : 'bg-white/[0.03] text-slate-400')}
+                      onClick={() => setSettings((current) => ({ ...current, transcriptionPreset: 'final', transcriptionModel: 'large-v3' }))}
+                    >
+                      <span className="block text-xs font-semibold">Final</span>
+                      <span className="block text-[10px] text-slate-500">Large-v3 accuracy</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                  <label className="block min-w-0">
+                    <span className="label">Speech Model</span>
+                    <select
+                      className="input"
+                      value={settings.transcriptionModel}
+                      onChange={(e) => update('transcriptionModel', e.target.value as RenderSettings['transcriptionModel'])}
+                    >
+                      {(['tiny', 'base', 'small', 'medium', 'large-v3', 'turbo'] as const).map((model) => (
+                        <option key={model} value={model}>{model}{model === 'turbo' ? ' · faster large-v3' : ''}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block min-w-0">
+                    <span className="label">Language</span>
+                    <input
+                      className="input"
+                      value={settings.transcriptionLanguage}
+                      onChange={(event) => update('transcriptionLanguage', event.target.value.trim().toLowerCase() || 'auto')}
+                      placeholder="auto or en"
+                    />
+                  </label>
+                </div>
+              </>
+            )}
+            {settings.mode === 'shorts' && (
+              <div className="space-y-2 border-t border-white/5 pt-3">
+                <div className="label">Viral Intelligence</div>
+                <label className="flex cursor-pointer items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 rounded accent-violet-500"
+                    checked={settings.localSemantic}
+                    onChange={(e) => update('localSemantic', e.target.checked)}
+                  />
+                  <span>
+                    <span className="block text-xs font-semibold text-slate-200">Local semantic reranking</span>
+                    <span className="block text-[10px] leading-relaxed text-slate-500">Uses your configured llama.cpp, Ollama, or LM Studio endpoint; falls back safely when unavailable.</span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 rounded accent-pink-500"
+                    checked={settings.geminiAnalysis}
+                    onChange={(e) => update('geminiAnalysis', e.target.checked)}
+                  />
+                  <span>
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-200">
+                      Gemini video analysis
+                      <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-sky-300">Cloud</span>
+                    </span>
+                    <span className="block text-[10px] leading-relaxed text-slate-500">Sends a compact analysis proxy with audio to Gemini for visual and semantic moment scoring.</span>
+                  </span>
+                </label>
+              </div>
+            )}
           </div>
 
-          {/* Max Clips */}
-          <div>
-            <div className="label">Max Clips to Export</div>
-            <div className="flex flex-wrap gap-1.5">
-              {MAX_CLIPS.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => update('maxClips', n)}
-                  className={clsx(
-                    'h-8 w-10 rounded-md text-xs font-bold transition',
-                    settings.maxClips === n
-                      ? 'bg-accent-pink/30 text-white ring-1 ring-accent-pink/50'
-                      : 'bg-white/5 text-slate-300 hover:bg-white/10 ring-1 ring-white/5',
-                  )}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          </div>
+          {settings.mode === 'shorts' && (
+            <label className="flex cursor-pointer items-start justify-between gap-4 rounded-xl border border-emerald-400/15 bg-emerald-500/[0.055] p-3">
+              <span className="min-w-0">
+                <span className="flex items-center gap-2 text-xs font-semibold text-white"><ListChecks className="h-4 w-4 text-emerald-300" /> Review before rendering</span>
+                <span className="mt-1 block text-[10px] leading-relaxed text-slate-500">Analyze once, group alternate lengths by story, then let you approve and trim candidates before full-quality exports.</span>
+              </span>
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-500"
+                checked={settings.reviewBeforeRender}
+                onChange={(event) => update('reviewBeforeRender', event.target.checked)}
+              />
+            </label>
+          )}
+
+          <JobPreflightPanel data={preflight.data} loading={preflight.isLoading} error={preflight.error as Error | null} />
 
           {/* Caption Style */}
-          <div>
+          {settings.mode === 'shorts' && <div>
             <div className="label">Caption Style</div>
             <select
               className="input"
@@ -267,7 +505,7 @@ export function DashboardPage() {
               <option value="none">No Captions</option>
             </select>
             <p className="mt-1 text-[11px] text-slate-500">Tip: edit any clip’s captions from the Library or Editor.</p>
-          </div>
+          </div>}
 
           {/* Segment */}
           <div>
@@ -340,12 +578,15 @@ export function DashboardPage() {
             onDrop={(e) => {
               e.preventDefault();
               setDropping(false);
+              if (!jobReady) return;
               const f = e.dataTransfer.files?.[0];
               if (f) handleFile(f);
             }}
-            onClick={() => fileInput.current?.click()}
+            onClick={() => { if (jobReady) fileInput.current?.click(); }}
+            aria-disabled={!jobReady}
             className={clsx(
-              'group cursor-pointer rounded-xl border-2 border-dashed p-5 text-center transition',
+              'group rounded-xl border-2 border-dashed p-5 text-center transition',
+              jobReady ? 'cursor-pointer' : 'cursor-not-allowed opacity-55',
               dropping
                 ? 'border-brand-500 bg-brand-500/10'
                 : 'border-white/10 hover:border-brand-500/40 hover:bg-white/[0.02]',
@@ -363,14 +604,23 @@ export function DashboardPage() {
               }}
             />
             <Upload className="mx-auto h-8 w-8 text-brand-400 group-hover:scale-110 transition" />
-            <p className="mt-2 text-sm font-semibold text-white">Drop video here</p>
+            <p className="mt-2 text-sm font-semibold text-white">Drop one video here</p>
             <p className="text-xs text-slate-500">or click to browse</p>
             <p className="mt-1 text-[10px] text-slate-600">MP4, MOV, MKV, AVI — up to 50GB</p>
           </div>
 
+          <Link
+            to="/compilations"
+            className="flex min-h-11 items-center gap-2 rounded-xl border border-fuchsia-400/20 bg-fuchsia-500/[0.07] px-3 py-2 text-fuchsia-100 transition hover:border-fuchsia-300/40 hover:bg-fuchsia-500/10"
+          >
+            <Clapperboard className="h-4 w-4 shrink-0 text-fuchsia-300" />
+            <span className="min-w-0 flex-1 text-xs font-semibold">Make a vertical short or horizontal long-form montage</span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-fuchsia-300" />
+          </Link>
+
           {/* URL input */}
-          <div className="flex gap-2">
-            <div className="relative flex-1">
+          <div className="flex min-w-0 gap-2">
+            <div className="relative min-w-0 flex-1">
               <Link2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
               <input
                 type="text"
@@ -382,15 +632,21 @@ export function DashboardPage() {
               />
             </div>
             <button
-              className="btn-primary"
+              className="btn-primary shrink-0"
               onClick={handleUrlSubmit}
-              disabled={!url || urlMutation.isPending}
+              disabled={!url || !jobReady || urlMutation.isPending}
             >
               {urlMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </button>
           </div>
           {urlPlatform && (
             <div className="text-[11px] text-slate-500">Detected: <span className="text-slate-300">{urlPlatform}</span></div>
+          )}
+          {(launchError || urlMutation.isError) && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-200" role="alert">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{launchError || (urlMutation.error as Error).message}</span>
+            </div>
           )}
 
           {/* Upload progress */}
@@ -400,7 +656,7 @@ export function DashboardPage() {
         </section>
 
         {/* Live Logs */}
-        <section className="panel p-5 lg:col-span-2 flex flex-col">
+        <section className="panel min-w-0 p-5 xl:col-span-2 flex flex-col">
           <header className="flex items-center justify-between mb-3">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
               <span className="grid h-5 w-5 place-items-center rounded-md bg-emerald-500/15 text-emerald-400">
@@ -440,6 +696,43 @@ export function DashboardPage() {
           </div>
         </section>
       </div>
+    </div>
+  );
+}
+
+function JobPreflightPanel({ data, loading, error }: { data?: JobPreflight; loading: boolean; error: Error | null }) {
+  if (loading && !data) {
+    return <div className="h-20 animate-pulse rounded-xl border border-white/5 bg-white/[0.025]" aria-label="Checking job configuration" />;
+  }
+  if (error) {
+    return (
+      <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-200">
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>Preflight could not run: {error.message}</span>
+      </div>
+    );
+  }
+  if (!data) return null;
+  return (
+    <div className={clsx('rounded-xl border px-3 py-3', data.ready ? 'border-emerald-400/15 bg-emerald-500/[0.045]' : 'border-red-500/20 bg-red-500/[0.07]')}>
+      <div className="flex items-start gap-2">
+        {data.ready ? <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />}
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-semibold text-white">{data.ready ? 'Job configuration ready' : 'Resolve configuration errors'}</div>
+          <div className="mt-1 break-words font-mono text-[10px] leading-relaxed text-slate-500 [overflow-wrap:anywhere]">
+            {data.effective.transcriptionProvider || 'unavailable'} · {data.effective.transcriptionModel || 'no model'} · {data.effective.computeDevice} · {data.effective.videoEncoder}
+          </div>
+        </div>
+      </div>
+      {(data.warnings.length > 0 || data.errors.length > 0) && (
+        <div className="mt-2 space-y-1 border-t border-white/5 pt-2">
+          {[...data.errors, ...data.warnings].map((item) => (
+            <div key={`${item.code}-${item.message}`} className={clsx('break-words text-[10px] leading-relaxed [overflow-wrap:anywhere]', data.errors.includes(item) ? 'text-red-200' : 'text-amber-200/80')}>
+              {item.message}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
