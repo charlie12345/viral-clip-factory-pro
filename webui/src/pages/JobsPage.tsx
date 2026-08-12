@@ -4,6 +4,8 @@ import { Activity, X, RotateCcw, ChevronRight, AlertCircle, CheckCircle2, Clock,
 import { clsx } from 'clsx';
 import { api, type JobHistoryEntry } from '@/api/client';
 import { useActiveJob, useJobs, useLogs } from '@/hooks/queries';
+import { Button, Chip, Panel, Skeleton } from '@/components/ui';
+import { formatTimestamp } from '@/lib/format';
 
 export function JobsPage() {
   const qc = useQueryClient();
@@ -31,7 +33,7 @@ export function JobsPage() {
       </header>
 
       {/* Active job card */}
-      <section className="panel-elev p-4 sm:p-5">
+      <Panel elevated className="p-4 sm:p-5">
         <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <div className={clsx(
@@ -56,27 +58,27 @@ export function JobsPage() {
             </div>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            {active?.startedAt && <span className="chip"><Clock className="h-3 w-3" /> Started {formatTime(active.startedAt)}</span>}
-            {active?.finishedAt && <span className="chip">Finished {formatTime(active.finishedAt)}</span>}
-            {active?.active && <span className="chip font-mono">{active.computeDevice || 'auto'} · {active.videoEncoder || 'auto'}</span>}
+            {active?.startedAt && <Chip><Clock className="h-3 w-3" /> Started {formatTimestamp(active.startedAt)}</Chip>}
+            {active?.finishedAt && <Chip>Finished {formatTimestamp(active.finishedAt)}</Chip>}
+            {active?.active && <Chip className="font-mono">{active.computeDevice || 'auto'} · {active.videoEncoder || 'auto'}</Chip>}
             {active?.active && (
               <>
                 {!confirmCancel ? (
-                  <button className="btn-danger" onClick={() => setConfirmCancel(true)}>
+                  <Button variant="danger" onClick={() => setConfirmCancel(true)}>
                     <X className="h-4 w-4" /> Cancel
-                  </button>
+                  </Button>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-slate-400">Are you sure?</span>
-                    <button className="btn-secondary" onClick={() => setConfirmCancel(false)}>No</button>
-                    <button
-                      className="btn-danger"
+                    <Button variant="secondary" onClick={() => setConfirmCancel(false)}>No</Button>
+                    <Button
+                      variant="danger"
                       disabled={cancel.isPending}
                       onClick={() => cancel.mutate()}
                     >
                       {cancel.isPending ? <RefreshCcw className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
                       Yes, cancel
-                    </button>
+                    </Button>
                   </div>
                 )}
               </>
@@ -99,26 +101,24 @@ export function JobsPage() {
             {logs.length === 0 ? <span className="text-slate-500 italic">No output yet…</span> : logs.join('\n')}
           </pre>
         </div>
-      </section>
+      </Panel>
 
       {/* Job history */}
       <section>
         <h2 className="section-title mb-3">History</h2>
         {isLoading ? (
-          <div className="panel-elev grid place-items-center py-10 text-slate-500">
-            <RefreshCcw className="h-5 w-5 animate-spin" />
-          </div>
+          <HistorySkeleton />
         ) : jobs.length === 0 ? (
-          <div className="panel-elev grid place-items-center gap-2 py-10 text-slate-500">
+          <Panel elevated className="grid place-items-center gap-2 py-10 text-slate-500">
             <FileVideo className="h-6 w-6 opacity-50" />
             <p>No job history yet. Run a render from the Dashboard to see it here.</p>
-          </div>
+          </Panel>
         ) : (
           <>
             <div className="space-y-2 md:hidden">
               {jobs.map((job) => <JobHistoryCard key={job.id} job={job} />)}
             </div>
-            <div className="panel hidden max-w-full overflow-x-auto md:block">
+            <Panel className="hidden max-w-full overflow-x-auto md:block">
             <table className="w-full min-w-[760px] text-sm">
               <thead className="bg-white/5 text-[10px] uppercase tracking-wider text-slate-400">
                 <tr>
@@ -127,17 +127,52 @@ export function JobsPage() {
                   <th className="px-4 py-2 text-left">Label</th>
                   <th className="px-4 py-2 text-left">Started</th>
                   <th className="px-4 py-2 text-left">Duration</th>
-                  <th className="px-4 py-2 text-right"></th>
+                  <th className="px-4 py-2 text-right"><span className="sr-only">Details</span></th>
                 </tr>
               </thead>
               <tbody>
                 {jobs.map((j) => <JobRow key={j.id} job={j} />)}
               </tbody>
             </table>
-            </div>
+            </Panel>
           </>
         )}
       </section>
+    </div>
+  );
+}
+
+/** Loading placeholder shaped like the history list: cards on mobile, table rows on desktop. */
+function HistorySkeleton() {
+  const rows = Array.from({ length: 5 }, (_, i) => i);
+  return (
+    <div role="status" aria-label="Loading job history">
+      <div className="space-y-2 md:hidden">
+        {rows.map((i) => (
+          <div key={i} className="panel-elev min-w-0 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <Skeleton className="h-4 w-20 rounded-full" />
+              <Skeleton className="h-3 w-14" />
+            </div>
+            <Skeleton className="mt-3 h-3 w-4/5" />
+            <div className="mt-3 grid grid-cols-2 gap-3 border-t border-white/5 pt-3">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <Panel className="hidden max-w-full overflow-hidden md:block">
+        {rows.map((i) => (
+          <div key={i} className="flex items-center gap-4 border-t border-white/5 px-4 py-3 first:border-t-0">
+            <Skeleton className="h-4 w-20 shrink-0 rounded-full" />
+            <Skeleton className="h-3 w-16 shrink-0" />
+            <Skeleton className="h-3 flex-1" />
+            <Skeleton className="h-3 w-28 shrink-0" />
+            <Skeleton className="h-3 w-14 shrink-0" />
+          </div>
+        ))}
+      </Panel>
     </div>
   );
 }
@@ -154,15 +189,13 @@ function JobRow({ job }: { job: JobHistoryEntry }) {
       </td>
       <td className="px-4 py-2.5 text-xs text-slate-300">
         <span className="inline-flex items-center gap-1.5">
-          {job.kind === 'rerender' ? <RotateCcw className="h-3 w-3" /> :
-           job.kind === 'url' ? <FilePlus2 className="h-3 w-3" /> :
-           <FileVideo className="h-3 w-3" />}
+          <JobKindIcon kind={job.kind} />
           {job.kind}
         </span>
-        <div className="mt-1 font-mono text-[9px] text-slate-600">{job.computeDevice || 'auto'} · {job.videoEncoder || 'auto'}</div>
+        <div className="mt-1 font-mono text-[10px] text-slate-600">{job.computeDevice || 'auto'} · {job.videoEncoder || 'auto'}</div>
       </td>
       <td className="px-4 py-2.5 max-w-xs truncate font-mono text-xs text-slate-200" title={job.label}>{job.label}</td>
-      <td className="px-4 py-2.5 text-xs text-slate-400">{formatTime(job.startedAt)}</td>
+      <td className="px-4 py-2.5 text-xs text-slate-400">{formatTimestamp(job.startedAt)}</td>
       <td className="px-4 py-2.5 text-xs text-slate-400">{ended ? formatDuration(durationMs) : '—'}</td>
       <td className="px-4 py-2.5 text-right">
         {job.error && <span className="text-[10px] text-red-400" title={job.error}>{job.error.slice(0, 40)}</span>}
@@ -181,9 +214,7 @@ function JobHistoryCard({ job }: { job: JobHistoryEntry }) {
       <div className="flex min-w-0 items-start justify-between gap-3">
         <JobStatusBadge status={job.status} />
         <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-slate-400">
-          {job.kind === 'rerender' ? <RotateCcw className="h-3 w-3" /> :
-           job.kind === 'url' ? <FilePlus2 className="h-3 w-3" /> :
-           <FileVideo className="h-3 w-3" />}
+          <JobKindIcon kind={job.kind} />
           {job.kind}
         </span>
       </div>
@@ -191,7 +222,7 @@ function JobHistoryCard({ job }: { job: JobHistoryEntry }) {
       <div className="mt-3 grid grid-cols-2 gap-3 border-t border-white/5 pt-3 text-[10px]">
         <div className="min-w-0">
           <div className="uppercase tracking-wider text-slate-600">Started</div>
-          <div className="mt-1 break-words text-slate-400">{formatTime(job.startedAt)}</div>
+          <div className="mt-1 break-words text-slate-400">{formatTimestamp(job.startedAt)}</div>
         </div>
         <div className="min-w-0">
           <div className="uppercase tracking-wider text-slate-600">Duration</div>
@@ -199,7 +230,7 @@ function JobHistoryCard({ job }: { job: JobHistoryEntry }) {
         </div>
       </div>
       {job.error && <div className="mt-3 break-words rounded-lg bg-red-500/10 px-3 py-2 text-[10px] leading-relaxed text-red-300">{job.error}</div>}
-      <div className="mt-3 font-mono text-[9px] text-slate-600">{job.computeDevice || 'auto'} · {job.videoEncoder || 'auto'}</div>
+      <div className="mt-3 font-mono text-[10px] text-slate-600">{job.computeDevice || 'auto'} · {job.videoEncoder || 'auto'}</div>
     </article>
   );
 }
@@ -224,11 +255,10 @@ function JobStatusBadge({ status }: { status: JobHistoryEntry['status'] }) {
   );
 }
 
-function formatTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  } catch { return iso; }
+function JobKindIcon({ kind }: { kind: JobHistoryEntry['kind'] }) {
+  return kind === 'rerender' ? <RotateCcw className="h-3 w-3" /> :
+         kind === 'url' ? <FilePlus2 className="h-3 w-3" /> :
+         <FileVideo className="h-3 w-3" />;
 }
 
 function formatDuration(ms: number): string {

@@ -111,9 +111,9 @@ export function StorageManagerPanel({ embedded = false }: { embedded?: boolean }
                     <span className="text-[11px] font-semibold text-slate-200">{category.label}</span>
                     <span className="shrink-0 font-mono text-[10px] text-sky-200">{formatBytes(category.bytes)}</span>
                   </span>
-                  <span className="mt-1 block text-[9px] leading-relaxed text-slate-500">{category.description}</span>
-                  <span className="mt-1 block text-[8px] leading-relaxed text-amber-200/65">{category.warning}</span>
-                  <span className="mt-1.5 block font-mono text-[8px] text-slate-700">{category.files} files · {category.directories} folders</span>
+                  <span className="mt-1 block text-[10px] leading-relaxed text-slate-500">{category.description}</span>
+                  <span className="mt-1 block text-[10px] leading-relaxed text-amber-200/65">{category.warning}</span>
+                  <span className="mt-1.5 block font-mono text-[10px] text-slate-700">{category.files} files · {category.directories} folders</span>
                 </span>
               </label>
             ))}
@@ -122,7 +122,7 @@ export function StorageManagerPanel({ embedded = false }: { embedded?: boolean }
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.7fr)]">
             <div className="rounded-lg border border-emerald-500/10 bg-emerald-500/[0.035] p-3">
               <div className="flex items-center gap-2 text-[10px] font-semibold text-emerald-200"><Database className="h-3.5 w-3.5" /> Protected by policy</div>
-              <ul className="mt-2 space-y-1 text-[9px] leading-relaxed text-slate-500">
+              <ul className="mt-2 space-y-1 text-[10px] leading-relaxed text-slate-500">
                 {data.protected.map((item) => <li key={item}>• {item}</li>)}
               </ul>
             </div>
@@ -132,12 +132,12 @@ export function StorageManagerPanel({ embedded = false }: { embedded?: boolean }
                 <span className="font-mono text-red-200">{formatBytes(selectedBytes)}</span>
               </div>
               {data.busyReason && (
-                <div className="mt-2 flex items-start gap-2 rounded-md bg-amber-500/10 px-2.5 py-2 text-[9px] leading-relaxed text-amber-100">
+                <div className="mt-2 flex items-start gap-2 rounded-md bg-amber-500/10 px-2.5 py-2 text-[10px] leading-relaxed text-amber-100">
                   <CircleAlert className="mt-0.5 h-3 w-3 shrink-0" /> {data.busyReason}. Cleanup is locked until it finishes.
                 </div>
               )}
               <label className="mt-3 block">
-                <span className="mb-1 block text-[8px] font-semibold uppercase tracking-wider text-slate-600">Type to confirm</span>
+                <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-600">Type to confirm</span>
                 <input
                   className="input h-9 font-mono text-[10px]"
                   value={confirmation}

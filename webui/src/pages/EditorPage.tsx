@@ -2,22 +2,28 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowLeft, Download, RefreshCcw, Type, ZoomIn, Palette, Settings2,
+  ArrowLeft, Download, RefreshCcw, Type, ZoomIn, Settings2,
   Captions, Loader2, CheckCircle2, AlertCircle, Type as TypeIcon,
   AlignCenterHorizontal, AlignCenterVertical,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { api, type ClipMetadata, type ClipWord } from '@/api/client';
-import { OVERLAY_STYLES, STYLE_LIST, getStyleDefaultPos } from '@/lib/subtitle-styles';
+import { Button, Chip, Select, Slider } from '@/components/ui';
+import { CaptionStylePicker } from '@/components/captions/CaptionStylePicker';
+import { OVERLAY_STYLES, getStyleDefaultPos } from '@/lib/subtitle-styles';
 import { FONT_LIST } from '@/lib/fonts';
 import { WORD_ANIMATIONS, ANIMATION_ORDER, ANIMATION_KEYFRAMES } from '@/lib/animations';
 import { useUIStore } from '@/store/ui';
+import { toast } from '@/store/toasts';
 import { EXPORT_PRESETS } from '@/lib/render-options';
 import {
   clampCaptionValue,
   clampCaptionX,
+  isCaptionWithinSafeArea,
   isNearFrameCenter,
+  normalizeCaptionSafeArea,
   normalizedToPercent,
+  snapCaptionToFrameCenter,
 } from '@/lib/caption-position';
 
 const PREVIEW_W = 240;
@@ -43,6 +49,7 @@ export function EditorPage() {
   const [animation, setAnimationState] = useState<string>('none');
   const [font, setFont] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState<number>(90);
+  const [glow, setGlow] = useState(false);
   const [overlayX, setOverlayX] = useState(0.5);
   const [overlayY, setOverlayY] = useState(0.8);
   const [overlayW, setOverlayW] = useState(0.8);
@@ -51,11 +58,31 @@ export function EditorPage() {
   const [panYPx, setPanYPx] = useState(0);
   const [words, setWords] = useState<ClipWord[]>([]);
   const [timeOffset, setTimeOffset] = useState(0);
+  const hydratedClipRef = useRef<string | null>(null);
+
+  function getStylePositionInsideSafeArea(styleId: string, width = overlayW): [number, number] {
+    const [defaultX, defaultY] = getStyleDefaultPos(styleId);
+    const preset = EXPORT_PRESETS.find((item) => item.id === meta?.export_preset);
+    const safeArea = normalizeCaptionSafeArea(meta?.safe_area) || normalizeCaptionSafeArea(preset?.safeArea);
+    if (!safeArea || styleId === 'none') return [defaultX, defaultY];
+
+    const halfWidth = clampCaptionValue(width, 0.15, 1) / 2;
+    const halfHeight = 0.05;
+    const minX = safeArea.left + halfWidth;
+    const maxX = 1 - safeArea.right - halfWidth;
+    const minY = safeArea.top + halfHeight;
+    const maxY = 1 - safeArea.bottom - halfHeight;
+    return [
+      minX <= maxX ? clampCaptionValue(defaultX, minX, maxX) : defaultX,
+      minY <= maxY ? clampCaptionValue(defaultY, minY, maxY) : defaultY,
+    ];
+  }
 
   function setStyle(s: string) {
     setStyleState(s);
     setPreferredStyle(s);
-    const [dx, dy] = getStyleDefaultPos(s);
+    if (s === 'none') return;
+    const [dx, dy] = getStylePositionInsideSafeArea(s);
     setOverlayX(dx);
     setOverlayY(dy);
   }
@@ -70,7 +97,13 @@ export function EditorPage() {
 
   useEffect(() => {
     if (!meta) return;
-    const initialStyle = (meta.style && OVERLAY_STYLES[meta.style]) ? meta.style
+    // A query refetch must not overwrite a style the user just selected. The
+    // editor state is hydrated once for each clip route, then remains the
+    // source of truth until the user navigates to another clip.
+    if (hydratedClipRef.current === clipName) return;
+    hydratedClipRef.current = clipName;
+    const initialStyle = meta.style === 'none' ? 'none'
+      : (meta.style && OVERLAY_STYLES[meta.style]) ? meta.style
       : (meta.subtitle_x != null || meta.subtitle_y != null) ? (meta.style || preferredStyle)
       : (preferredStyle || meta.style || 'classic');
     setStyleState(initialStyle);
@@ -79,9 +112,12 @@ export function EditorPage() {
     setPreferredAnimation(meta.animation && WORD_ANIMATIONS[meta.animation] ? meta.animation : preferredAnimation);
     setFont(meta.font || null);
     setFontSize(meta.subtitle_fontsize ?? 90);
-    setOverlayX(meta.subtitle_x ?? getStyleDefaultPos(initialStyle)[0]);
-    setOverlayY(meta.subtitle_y ?? getStyleDefaultPos(initialStyle)[1]);
-    setOverlayW(meta.subtitle_width ?? 0.8);
+    setGlow(meta.subtitle_glow === true);
+    const initialWidth = meta.subtitle_width ?? 0.8;
+    const [initialX, initialY] = getStylePositionInsideSafeArea(initialStyle, initialWidth);
+    setOverlayX(meta.subtitle_x ?? initialX);
+    setOverlayY(meta.subtitle_y ?? initialY);
+    setOverlayW(initialWidth);
     const z = parseFloat(String(meta.video_zoom ?? '1')) || 1;
     setVideoZoom(z);
     setPanXPx((Number(meta.video_pan_x) || 0) * PREVIEW_W * z);
@@ -97,10 +133,10 @@ export function EditorPage() {
 
       <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-white/5 bg-bg-panel/80 px-4 backdrop-blur-md">
         <div className="flex items-center gap-3 min-w-0">
-          <button className="btn-ghost" onClick={() => navigate('/library')}>
+          <Button variant="ghost" onClick={() => navigate('/library')}>
             <ArrowLeft className="h-4 w-4" />
             <span className="hidden sm:inline">Library</span>
-          </button>
+          </Button>
           <div className="h-6 w-px bg-white/10" />
           <div className="min-w-0">
             <div className="text-xs text-slate-500">Editing</div>
@@ -109,18 +145,18 @@ export function EditorPage() {
         </div>
         {meta && (
           <div className="hidden md:flex items-center gap-2 text-[11px]">
-            <span className="chip">
+            <Chip>
               <span className="text-slate-400">Score</span>
               <span className="text-white font-bold">{parseFloat(String(meta.score)).toFixed(1)}</span>
-            </span>
-            <span className="chip">
+            </Chip>
+            <Chip>
               <span className="text-slate-400">Duration</span>
               <span className="text-white font-bold">{meta.duration?.toFixed(1)}s</span>
-            </span>
-            <span className="chip">
+            </Chip>
+            <Chip>
               <span className="text-slate-400">Words</span>
               <span className="text-white font-bold">{words.length}</span>
-            </span>
+            </Chip>
           </div>
         )}
       </header>
@@ -134,7 +170,7 @@ export function EditorPage() {
           <div className="text-center">
             <AlertCircle className="mx-auto h-8 w-8" />
             <p className="mt-2">{(error as Error).message}</p>
-            <button className="btn-secondary mt-3" onClick={() => navigate('/library')}>Back to Library</button>
+            <Button variant="secondary" className="mt-3" onClick={() => navigate('/library')}>Back to Library</Button>
           </div>
         </div>
       ) : !meta || !meta.words?.length ? (
@@ -150,7 +186,7 @@ export function EditorPage() {
           clipName={clipName}
           meta={meta}
           state={{
-            style, setStyle, animation, setAnimation, font, setFont,
+            style, setStyle, animation, setAnimation, font, setFont, glow, setGlow,
             fontSize, setFontSize,
             overlayX, setOverlayX, overlayY, setOverlayY, overlayW, setOverlayW,
             videoZoom, setZoom, panXPx, setPanXPx, panYPx, setPanYPx,
@@ -171,6 +207,7 @@ interface EditorState {
   animation: string; setAnimation: (a: string) => void;
   font: string | null; setFont: (f: string | null) => void;
   fontSize: number; setFontSize: (n: number) => void;
+  glow: boolean; setGlow: (enabled: boolean) => void;
   overlayX: number; setOverlayX: (n: number) => void;
   overlayY: number; setOverlayY: (n: number) => void;
   overlayW: number; setOverlayW: (n: number) => void;
@@ -200,6 +237,7 @@ function EditorBody({
 
   const sc = OVERLAY_STYLES[state.style] || OVERLAY_STYLES.classic;
   const animDef = WORD_ANIMATIONS[state.animation];
+  const selectedCaptionLabel = state.style === 'none' ? 'No captions' : sc.label;
 
   const buildPayload = useCallback(() => {
     const normalizedZoom = Math.max(state.videoZoom || 1, 1);
@@ -211,6 +249,7 @@ function EditorBody({
       posY: state.overlayY,
       fontSize: state.fontSize,
       font: state.font,
+      glow: state.glow,
       width: state.overlayW,
       videoZoom: state.videoZoom,
       videoPanX: state.panXPx / (PREVIEW_W * normalizedZoom),
@@ -221,8 +260,17 @@ function EditorBody({
   const applyMutation = useMutation({
     mutationFn: () => api.reRenderClip(clipName, buildPayload()),
     onMutate: () => { setApplyState('rendering'); setApplyError(null); },
-    onSuccess: () => { setApplyState('done'); onApplied(); setTimeout(() => setApplyState('idle'), 2200); },
-    onError: (e) => { setApplyState('error'); setApplyError((e as Error).message); },
+    onSuccess: () => {
+      setApplyState('done');
+      onApplied();
+      setTimeout(() => setApplyState('idle'), 2200);
+      toast('success', 'Clip re-rendered', 'The updated captions are baked into the library export.');
+    },
+    onError: (e) => {
+      setApplyState('error');
+      setApplyError((e as Error).message);
+      toast('error', 'Re-render failed', (e as Error).message);
+    },
   });
 
   const bake = useBakeDownload({
@@ -230,9 +278,15 @@ function EditorBody({
     buildPayload,
     onState: (s) => {
       setApplyState(s);
-      if (s === 'done') setTimeout(() => setApplyState('idle'), 2200);
+      if (s === 'done') {
+        setTimeout(() => setApplyState('idle'), 2200);
+        toast('success', 'Bake complete', 'Your download should start automatically.');
+      }
     },
-    onError: setApplyError,
+    onError: (message) => {
+      setApplyError(message);
+      toast('error', 'Bake failed', message);
+    },
   });
 
   // Demo cycling while paused
@@ -276,8 +330,15 @@ function EditorBody({
   const displayChunk = state.words.slice(nearestChunkIdx * sc.chunks, (nearestChunkIdx + 1) * sc.chunks);
   const videoTime = paused ? -1 : currentTime + state.timeOffset;
   const preset = EXPORT_PRESETS.find((item) => item.id === meta.export_preset);
-  const safeArea = meta.safe_area || preset?.safeArea;
+  const safeArea = normalizeCaptionSafeArea(meta.safe_area) || normalizeCaptionSafeArea(preset?.safeArea);
   const captionHorizontalInset = clampCaptionValue(state.overlayW, 0.15, 1) / 2;
+  const captionInSafeArea = isCaptionWithinSafeArea(
+    state.overlayX,
+    state.overlayY,
+    state.overlayW,
+    captionVerticalInset,
+    safeArea,
+  );
 
   useEffect(() => {
     const nextY = clampCaptionValue(state.overlayY, captionVerticalInset, 1 - captionVerticalInset);
@@ -313,7 +374,7 @@ function EditorBody({
           />
           {showSafeArea && safeArea && (
             <div
-              className="pointer-events-none absolute border border-dashed border-amber-300/70 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.45)]"
+              className="pointer-events-none absolute z-[1] border border-dashed border-amber-300/80 shadow-[0_0_0_999px_rgba(2,6,23,0.36),inset_0_0_0_1px_rgba(15,23,42,0.65)]"
               style={{
                 top: `${safeArea.top * 100}%`,
                 right: `${safeArea.right * 100}%`,
@@ -321,37 +382,47 @@ function EditorBody({
                 left: `${safeArea.left * 100}%`,
               }}
             >
-              <span className="absolute left-1 top-1 rounded bg-slate-950/75 px-1 py-0.5 font-mono text-[8px] uppercase tracking-wider text-amber-200">
-                Safe area
+              <span className="absolute left-1 top-1 whitespace-nowrap rounded bg-slate-950/85 px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider text-amber-200">
+                Caption-safe area
               </span>
             </div>
           )}
-          <SubtitleOverlay
-            chunk={displayChunk}
-            currentTime={videoTime}
-            styleId={state.style}
-            fontSize={state.fontSize}
-            font={state.font}
-            animation={state.animation}
-            paused={paused}
-            x={state.overlayX}
-            y={state.overlayY}
-            w={state.overlayW}
-            onPositionXChange={state.setOverlayX}
-            onPositionYChange={state.setOverlayY}
-            onWidthChange={state.setOverlayW}
-            onVerticalInsetChange={setCaptionVerticalInset}
-          />
+          {state.style !== 'none' && (
+            <SubtitleOverlay
+              chunk={displayChunk}
+              currentTime={videoTime}
+              styleId={state.style}
+              fontSize={state.fontSize}
+              font={state.font}
+              animation={state.animation}
+              glow={state.glow}
+              paused={paused}
+              x={state.overlayX}
+              y={state.overlayY}
+              w={state.overlayW}
+              onPositionXChange={state.setOverlayX}
+              onPositionYChange={state.setOverlayY}
+              onWidthChange={state.setOverlayW}
+              onVerticalInsetChange={setCaptionVerticalInset}
+            />
+          )}
         </div>
 
         {safeArea && (
-          <button
-            type="button"
-            className="rounded-md bg-white/5 px-2.5 py-1 text-[10px] font-semibold text-slate-300 ring-1 ring-white/10 transition active:translate-y-px"
-            onClick={() => setShowSafeArea((visible) => !visible)}
-          >
-            {showSafeArea ? 'Hide' : 'Show'} {preset?.label || 'platform'} safe area
-          </button>
+          <div className="w-full max-w-[240px] space-y-1.5">
+            <button
+              type="button"
+              className="w-full rounded-md bg-white/5 px-2.5 py-1 text-[10px] font-semibold text-slate-300 ring-1 ring-white/10 transition hover:bg-white/10 active:translate-y-px"
+              onClick={() => setShowSafeArea((visible) => !visible)}
+            >
+              {showSafeArea ? 'Hide' : 'Show'} {preset?.label || 'platform'} safe area
+            </button>
+            {state.style !== 'none' && (
+              <p className={clsx('text-center text-[10px]', captionInSafeArea ? 'text-emerald-300' : 'text-amber-300')} role="status">
+                {captionInSafeArea ? 'Caption is inside the platform-safe area' : 'Caption crosses the platform-safe area'}
+              </p>
+            )}
+          </div>
         )}
 
         <div className="w-full max-w-[240px] space-y-2">
@@ -393,28 +464,27 @@ function EditorBody({
           </div>
         </div>
 
-        <div className="w-full max-w-[240px] space-y-1">
-          <div className="flex items-center justify-between text-[11px] text-slate-400">
-            <span className="flex items-center gap-1.5"><Type className="h-3 w-3" /> Font Size</span>
-            <span className="font-mono text-slate-300">{state.fontSize}pt</span>
-          </div>
-          <input
-            type="range" min="40" max="160" value={state.fontSize}
-            onChange={(e) => state.setFontSize(parseInt(e.target.value))}
-            className="w-full accent-pink-500"
-          />
-        </div>
+        <Slider
+          containerClassName="w-full max-w-[240px] space-y-1"
+          headerClassName="text-[11px] text-slate-400"
+          label={<><Type className="h-3 w-3" /> Font Size</>}
+          trailing={<span className="font-mono text-slate-300">{state.fontSize}pt</span>}
+          min={40}
+          max={160}
+          value={state.fontSize}
+          onChange={(value) => state.setFontSize(value)}
+        />
 
         <div className="w-full max-w-[240px] space-y-1">
-          <div className="flex items-center justify-between text-[11px] text-slate-400">
-            <span className="flex items-center gap-1.5"><ZoomIn className="h-3 w-3" /> Video Zoom</span>
-            <span className="font-mono text-slate-300">{state.videoZoom.toFixed(1)}x</span>
-          </div>
-          <input
-            type="range" min="100" max="400" step="5"
+          <Slider
+            headerClassName="text-[11px] text-slate-400"
+            label={<><ZoomIn className="h-3 w-3" /> Video Zoom</>}
+            trailing={<span className="font-mono text-slate-300">{state.videoZoom.toFixed(1)}x</span>}
+            min={100}
+            max={400}
+            step={5}
             value={Math.round(state.videoZoom * 100)}
-            onChange={(e) => state.setZoom(parseInt(e.target.value) / 100)}
-            className="w-full accent-pink-500"
+            onChange={(value) => state.setZoom(value / 100)}
           />
           <button
             onClick={() => state.setZoom(1)}
@@ -429,41 +499,11 @@ function EditorBody({
 
       <section className="flex min-w-0 flex-col lg:min-h-0 lg:flex-1">
         <div className="min-w-0 space-y-5 p-4 lg:flex-1 lg:overflow-y-auto">
-          <div>
-            <div className="label flex items-center gap-1.5"><Palette className="h-3 w-3" /> Caption Style</div>
-            <div className="flex flex-wrap gap-1.5">
-              {STYLE_LIST.map((s, i) => {
-                if ('sep' in s) {
-                  const prev = i > 0 ? STYLE_LIST[i - 1] : null;
-                  const showSep = !prev || !('sep' in prev);
-                  if (!showSep) return null;
-                  return <div key={`sep-${i}`} className="w-full text-[10px] font-semibold uppercase tracking-wider text-slate-500 pt-2">{s.sep}</div>;
-                }
-                const active = state.style === s.id;
-                const accent = OVERLAY_STYLES[s.id]?.hi[0] || '#fff';
-                return (
-                  <button
-                    key={s.id}
-                    onClick={() => state.setStyle(s.id)}
-                    className={clsx(
-                      'rounded-md px-2.5 py-1 text-[11px] font-semibold transition',
-                      active
-                        ? 'bg-white/10 text-white ring-1'
-                        : 'bg-white/5 text-slate-300 hover:bg-white/10',
-                    )}
-                    style={active ? { borderColor: accent, boxShadow: `0 0 0 1px ${accent}40` } : {}}
-                  >
-                    {s.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <CaptionStylePicker value={state.style} onChange={state.setStyle} label="Caption Style" />
 
           <div>
             <div className="label flex items-center gap-1.5"><TypeIcon className="h-3 w-3" /> Font</div>
-            <select
-              className="input"
+            <Select
               value={state.font ?? ''}
               onChange={(e) => state.setFont(e.target.value || null)}
               style={state.font ? { fontFamily: `"${state.font}", sans-serif` } : {}}
@@ -472,7 +512,7 @@ function EditorBody({
                 if (f.group === 'header') return <option key={`hdr-${i}`} disabled>{f.label}</option>;
                 return <option key={f.label} value={f.id ?? ''} style={f.id ? { fontFamily: `"${f.id}", sans-serif` } : {}}>{f.label}</option>;
               })}
-            </select>
+            </Select>
             <p className="mt-1 text-[10px] text-slate-500">Bake output depends on the system fonts installed on the server.</p>
           </div>
 
@@ -504,6 +544,26 @@ function EditorBody({
             )}
           </div>
 
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2.5">
+            <div>
+              <p className="text-[11px] font-semibold text-slate-200">Text glow</p>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-slate-500">Off by default. Adds a soft edge glow to the baked caption.</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={state.glow}
+              aria-label="Toggle text glow"
+              onClick={() => state.setGlow(!state.glow)}
+              className={clsx(
+                'relative h-5 w-9 shrink-0 rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400',
+                state.glow ? 'bg-brand-400' : 'bg-slate-700',
+              )}
+            >
+              <span className={clsx('absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform', state.glow ? 'translate-x-4.5' : 'translate-x-0.5')} />
+            </button>
+          </div>
+
           <WordEditor
             words={state.words}
             onChange={state.setWords}
@@ -527,36 +587,36 @@ function EditorBody({
             </div>
           )}
           {applyState === 'done' && (
-            <div className="flex items-center gap-2 rounded-md bg-emerald-500/15 px-3 py-1.5 text-[11px] text-emerald-300">
+            <div role="status" className="flex items-center gap-2 rounded-md bg-emerald-500/15 px-3 py-1.5 text-[11px] text-emerald-300">
               <CheckCircle2 className="h-3 w-3" /> Done.
             </div>
           )}
           {applyState === 'error' && applyError && (
-            <div className="flex min-w-0 items-center gap-2 break-words rounded-md bg-red-500/15 px-3 py-1.5 text-[11px] text-red-300 [overflow-wrap:anywhere]">
+            <div role="alert" className="flex min-w-0 items-center gap-2 break-words rounded-md bg-red-500/15 px-3 py-1.5 text-[11px] text-red-300 [overflow-wrap:anywhere]">
               <AlertCircle className="h-3 w-3" /> {applyError}
             </div>
           )}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div className="text-[11px] text-slate-500">
-              Edits are kept in your browser. Use the buttons to write them to the clip.
+              Ready to bake: <span className="font-semibold text-slate-300">{selectedCaptionLabel}</span>. Use the buttons to write it to the clip.
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 onClick={() => applyMutation.mutate()}
                 disabled={applyMutation.isPending || bake.active}
               >
                 {applyMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
                 Apply &amp; Re-render
-              </button>
-              <button
-                className="btn-primary"
+              </Button>
+              <Button
+                variant="primary"
                 onClick={bake.start}
                 disabled={bake.active || applyMutation.isPending}
               >
                 {bake.active ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                Bake &amp; Download
-              </button>
+                Bake {selectedCaptionLabel} &amp; Download
+              </Button>
             </div>
           </div>
         </footer>
@@ -566,7 +626,7 @@ function EditorBody({
 }
 
 function SubtitleOverlay({
-  chunk, currentTime, styleId, fontSize, font, animation, paused, x, y, w,
+  chunk, currentTime, styleId, fontSize, font, animation, glow, paused, x, y, w,
   onPositionXChange, onPositionYChange, onWidthChange, onVerticalInsetChange,
 }: {
   chunk: ClipWord[];
@@ -575,6 +635,7 @@ function SubtitleOverlay({
   fontSize: number;
   font: string | null;
   animation: string;
+  glow: boolean;
   paused: boolean;
   x: number; y: number; w: number;
   onPositionXChange: (n: number) => void;
@@ -667,8 +728,8 @@ function SubtitleOverlay({
 
     if (drag.current.mode === 'move') {
       const halfHeight = getVerticalInset();
-      onPositionXChange(clampCaptionX(drag.current.spx + dxf, w));
-      onPositionYChange(clampCaptionValue(drag.current.spy + dyf, halfHeight, 1 - halfHeight));
+      onPositionXChange(snapCaptionToFrameCenter(clampCaptionX(drag.current.spx + dxf, w)));
+      onPositionYChange(snapCaptionToFrameCenter(clampCaptionValue(drag.current.spy + dyf, halfHeight, 1 - halfHeight)));
       return;
     }
 
@@ -702,27 +763,43 @@ function SubtitleOverlay({
     const step = e.shiftKey ? 0.01 : 0.001;
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
     e.preventDefault();
-    if (e.key === 'ArrowLeft') onPositionXChange(clampCaptionX(x - step, w));
-    if (e.key === 'ArrowRight') onPositionXChange(clampCaptionX(x + step, w));
-    if (e.key === 'ArrowUp') onPositionYChange(clampCaptionValue(y - step, getVerticalInset(), 1 - getVerticalInset()));
-    if (e.key === 'ArrowDown') onPositionYChange(clampCaptionValue(y + step, getVerticalInset(), 1 - getVerticalInset()));
+    if (e.key === 'ArrowLeft') onPositionXChange(snapCaptionToFrameCenter(clampCaptionX(x - step, w)));
+    if (e.key === 'ArrowRight') onPositionXChange(snapCaptionToFrameCenter(clampCaptionX(x + step, w)));
+    if (e.key === 'ArrowUp') onPositionYChange(snapCaptionToFrameCenter(clampCaptionValue(y - step, getVerticalInset(), 1 - getVerticalInset())));
+    if (e.key === 'ArrowDown') onPositionYChange(snapCaptionToFrameCenter(clampCaptionValue(y + step, getVerticalInset(), 1 - getVerticalInset())));
   };
 
   // Build inline style
   const fontCss = sc.font.replace('1em', `${cssFontSize}px`);
   const finalFont = font ? fontCss.replace(/^(\d+\w+\s+[\d.]+px\s+).*$/, `$1"${font}",sans-serif`) : fontCss;
-  const tShadow = sc.op > 0 && sc.outline !== 'none'
+  const baseTextShadow = sc.op > 0 && sc.outline !== 'none'
     ? `-${sc.op}px -${sc.op}px 0 ${sc.outline},${sc.op}px -${sc.op}px 0 ${sc.outline},-${sc.op}px ${sc.op}px 0 ${sc.outline},${sc.op}px ${sc.op}px 0 ${sc.outline}`
     : sc.ts || 'none';
+  const tShadow = glow
+    ? `${baseTextShadow === 'none' ? '' : `${baseTextShadow},`}0 0 7px ${sc.hi[0]}`
+    : baseTextShadow;
 
   return (
     <>
       {dragMode === 'move' && isNearFrameCenter(x) && (
-        <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-brand-400/90" />
+        <div className="pointer-events-none absolute inset-y-0 left-1/2 z-20 w-px bg-brand-300 shadow-[0_0_7px_rgba(125,211,252,0.95)]">
+          <span className="absolute left-1 top-2 whitespace-nowrap rounded bg-slate-950/90 px-1.5 py-0.5 text-[9px] font-semibold text-brand-200 shadow">Centered X</span>
+        </div>
       )}
       {dragMode === 'move' && isNearFrameCenter(y) && (
-        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-brand-400/90" />
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 z-20 h-px bg-brand-300 shadow-[0_0_7px_rgba(125,211,252,0.95)]">
+          <span className="absolute left-2 bottom-1 whitespace-nowrap rounded bg-slate-950/90 px-1.5 py-0.5 text-[9px] font-semibold text-brand-200 shadow">Centered Y</span>
+        </div>
       )}
+      <span className="sr-only" role="status" aria-live="polite">
+        {dragMode === 'move' && isNearFrameCenter(x) && isNearFrameCenter(y)
+          ? 'Caption centered horizontally and vertically'
+          : dragMode === 'move' && isNearFrameCenter(x)
+            ? 'Caption centered horizontally'
+            : dragMode === 'move' && isNearFrameCenter(y)
+              ? 'Caption centered vertically'
+              : ''}
+      </span>
       <div
         ref={overlayRef}
         className="absolute z-10 select-none outline-none focus-visible:ring-1 focus-visible:ring-brand-400"

@@ -1759,7 +1759,7 @@ export function LongformEditorPage() {
           </div>
           <div className="min-w-0">
             <div className="truncate text-[11px] font-semibold text-slate-200" title={project.name}>{project.name}</div>
-            <div className="text-[8px] uppercase tracking-[0.16em] text-slate-600">Long-form sequence</div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-600">Long-form sequence</div>
           </div>
         </div>
         <nav className="hidden min-w-0 flex-1 items-stretch justify-center overflow-x-auto lg:flex">
@@ -1778,14 +1778,18 @@ export function LongformEditorPage() {
           ))}
         </nav>
         <div className="ml-auto flex shrink-0 items-center gap-1 px-2">
-          <span className={clsx(
-            'hidden px-2 text-[8px] font-semibold uppercase tracking-[0.15em] sm:block',
-            saveMutation.isError ? 'text-red-300' : saveMutation.isPending ? 'text-amber-300' : editRevision > 0 && savedRevision >= editRevision ? 'text-emerald-400' : 'text-slate-600',
-          )}>
+          <span
+            role="status"
+            aria-live="polite"
+            className={clsx(
+              'hidden px-2 text-[10px] font-semibold uppercase tracking-[0.15em] sm:block',
+              saveMutation.isError ? 'text-red-300' : saveMutation.isPending ? 'text-amber-300' : editRevision > 0 && savedRevision >= editRevision ? 'text-emerald-400' : 'text-slate-600',
+            )}
+          >
             {saveMutation.isError ? 'Autosave failed' : saveMutation.isPending ? 'Saving' : editRevision > 0 && savedRevision >= editRevision ? 'Saved' : 'Original'}
           </span>
-          <button className="nle-icon-button" disabled={!cutHistory.past.length} onClick={undoCuts} title="Undo (Ctrl+Z)"><Undo2 className="h-3.5 w-3.5" /></button>
-          <button className="nle-icon-button" disabled={!cutHistory.future.length} onClick={redoCuts} title="Redo (Ctrl+Shift+Z)"><Redo2 className="h-3.5 w-3.5" /></button>
+          <button className="nle-icon-button" disabled={!cutHistory.past.length} onClick={undoCuts} title="Undo (Ctrl+Z)" aria-label="Undo (Ctrl+Z)"><Undo2 className="h-3.5 w-3.5" /></button>
+          <button className="nle-icon-button" disabled={!cutHistory.future.length} onClick={redoCuts} title="Redo (Ctrl+Shift+Z)" aria-label="Redo (Ctrl+Shift+Z)"><Redo2 className="h-3.5 w-3.5" /></button>
           <button
             className="ml-1 inline-flex h-8 items-center gap-1.5 rounded bg-[#2678c9] px-3 text-[10px] font-semibold text-white hover:bg-[#3189df] disabled:opacity-50"
             disabled={renderMutation.isPending || analyzeMutation.isPending || (options.enabled && !analysis)}
@@ -1914,22 +1918,24 @@ export function LongformEditorPage() {
 
           <section className="flex min-h-0 min-w-0 flex-col bg-[#101010]">
             <div className="flex h-9 shrink-0 items-center border-b border-black bg-[#1b1b1b]">
-              <button className="nle-icon-button ml-1 lg:hidden" onClick={() => { setLeftDockCollapsed(false); setMobileDock('left'); }} title="Open Project panels"><FolderOpen className="h-3.5 w-3.5" /></button>
+              <button className="nle-icon-button ml-1 lg:hidden" onClick={() => { setLeftDockCollapsed(false); setMobileDock('left'); }} title="Open Project panels" aria-label="Open Project panels"><FolderOpen className="h-3.5 w-3.5" /></button>
               <button className={clsx('nle-panel-tab px-4', !editedPreview && 'active')} onClick={() => setEditedPreview(false)}>Source</button>
               <button className={clsx('nle-panel-tab px-4', editedPreview && 'active')} onClick={() => setEditedPreview(true)}>Program</button>
-              <span className="ml-2 min-w-0 truncate text-[9px] text-slate-600">{activeSequence?.name || 'Main sequence'}</span>
+              <span className="ml-2 min-w-0 truncate text-[10px] text-slate-600">{activeSequence?.name || 'Main sequence'}</span>
               <div className="ml-auto flex items-center gap-1 pr-2">
-                <button className="nle-icon-button lg:hidden" onClick={() => { setRightDockCollapsed(false); setMobileDock('right'); }} title="Open Properties"><SlidersHorizontal className="h-3.5 w-3.5" /></button>
+                <button className="nle-icon-button lg:hidden" onClick={() => { setRightDockCollapsed(false); setMobileDock('right'); }} title="Open Properties" aria-label="Open Properties"><SlidersHorizontal className="h-3.5 w-3.5" /></button>
                 <button
                   className={clsx('nle-icon-button', useProxy && 'text-sky-300')}
                   disabled={proxyMutation.isPending || project.proxy?.status === 'building'}
                   onClick={() => project.proxy?.status === 'ready' ? setUseProxy((current) => !current) : proxyMutation.mutate('build')}
                   title={project.proxy?.status === 'ready' ? 'Toggle proxies' : 'Create proxies'}
+                  aria-label={project.proxy?.status === 'ready' ? 'Toggle proxies' : 'Create proxies'}
+                  aria-pressed={project.proxy?.status === 'ready' ? useProxy : undefined}
                 >
                   {project.proxy?.status === 'building' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Film className="h-3.5 w-3.5" />}
                 </button>
-                <button className={clsx('nle-icon-button', showSafeAreas && 'text-amber-200')} onClick={() => setShowSafeAreas((current) => !current)} title="Safe margins"><Eye className="h-3.5 w-3.5" /></button>
-                <button className="nle-icon-button" onClick={() => openWindowPanel({ suite: 'v3', tab: 'qc' })} title="Maximize panel"><Maximize2 className="h-3.5 w-3.5" /></button>
+                <button className={clsx('nle-icon-button', showSafeAreas && 'text-amber-200')} onClick={() => setShowSafeAreas((current) => !current)} title="Safe margins" aria-label="Safe margins" aria-pressed={showSafeAreas}><Eye className="h-3.5 w-3.5" /></button>
+                <button className="nle-icon-button" onClick={() => openWindowPanel({ suite: 'v3', tab: 'qc' })} title="Maximize panel" aria-label="Maximize panel"><Maximize2 className="h-3.5 w-3.5" /></button>
               </div>
             </div>
             <div ref={monitorSurfaceRef} className="relative grid min-h-0 flex-1 place-items-center overflow-hidden bg-black">
@@ -1989,22 +1995,22 @@ export function LongformEditorPage() {
                     <div className="pointer-events-none absolute inset-0">
                       <div className="absolute inset-[5%] border border-white/20" />
                       <div className="absolute inset-[10%] border border-dashed border-amber-300/35" />
-                      <span className="absolute right-[10%] top-[10%] bg-black/60 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-amber-100/70">Title safe</span>
+                      <span className="absolute right-[10%] top-[10%] bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-100/70">Title safe</span>
                     </div>
                   )}
                 </div>
               )}
             </div>
             <div className="flex h-11 shrink-0 items-center justify-center gap-1 border-t border-black bg-[#181818]">
-              <button className="nle-icon-button" onClick={() => seekTo(playhead - 1 / 30)} title="Step back one frame"><SkipBack className="h-3.5 w-3.5" /></button>
-              <button className="nle-icon-button" onClick={() => videoRef.current?.paused ? videoRef.current.play().catch(() => undefined) : videoRef.current?.pause()} title="Play / pause (Space)">
+              <button className="nle-icon-button" onClick={() => seekTo(playhead - 1 / 30)} title="Step back one frame" aria-label="Step back one frame"><SkipBack className="h-3.5 w-3.5" /></button>
+              <button className="nle-icon-button" onClick={() => videoRef.current?.paused ? videoRef.current.play().catch(() => undefined) : videoRef.current?.pause()} title="Play / pause (Space)" aria-label="Play / pause (Space)">
                 {monitorPlaying ? <Pause className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 fill-current" />}
               </button>
-              <button className="nle-icon-button" onClick={() => seekTo(playhead + 1 / 30)} title="Step forward one frame"><SkipForward className="h-3.5 w-3.5" /></button>
+              <button className="nle-icon-button" onClick={() => seekTo(playhead + 1 / 30)} title="Step forward one frame" aria-label="Step forward one frame"><SkipForward className="h-3.5 w-3.5" /></button>
               <span className="mx-3 min-w-[92px] text-center font-mono text-[12px] font-semibold text-sky-100">{formatTimecode(playhead)}</span>
-              <button className="nle-text-button" onClick={() => setManualStart(playhead)} title="Mark In (I)">I</button>
-              <button className="nle-text-button" onClick={() => setManualEnd(playhead)} title="Mark Out (O)">O</button>
-              <button className="nle-icon-button" onClick={addChapter} title="Add marker (M)"><Plus className="h-3.5 w-3.5" /></button>
+              <button className="nle-text-button" onClick={() => setManualStart(playhead)} title="Mark In (I)" aria-label="Mark In (I)">I</button>
+              <button className="nle-text-button" onClick={() => setManualEnd(playhead)} title="Mark Out (O)" aria-label="Mark Out (O)">O</button>
+              <button className="nle-icon-button" onClick={addChapter} title="Add marker (M)" aria-label="Add marker (M)"><Plus className="h-3.5 w-3.5" /></button>
             </div>
           </section>
 
@@ -2113,12 +2119,16 @@ export function LongformEditorPage() {
             setLeftDockTab('graphics');
             setRightDockTab('properties');
           }}
+          onAddTitle={(atSeconds) => addTitleCard('playhead', {
+            start: atSeconds,
+            end: Math.min(effectiveOptions.endSec, atSeconds + 4),
+          })}
           onCreativeChange={patchCreative}
           onOpenPanel={openWindowPanel}
         />
       </main>
 
-      <footer className="flex h-6 shrink-0 items-center gap-4 border-t border-black bg-[#181818] px-3 font-mono text-[8px] text-slate-600">
+      <footer className="flex h-6 shrink-0 items-center gap-4 border-t border-black bg-[#181818] px-3 font-mono text-[10px] text-slate-600">
         <span className="text-sky-300">{TIMELINE_TOOLS.find((tool) => tool.id === timelineTool)?.label || 'Selection'} [{TIMELINE_TOOLS.find((tool) => tool.id === timelineTool)?.shortcut}]</span>
         <span>Source {formatTime(stats.originalDurationSec)}</span>
         <span className="text-red-300/70">Removed {formatTime(stats.removedDurationSec)}</span>
@@ -2285,7 +2295,7 @@ function DockRange({ label, value, min, max, step, suffix = '', onChange }: {
 }) {
   return (
     <label className="block">
-      <span className="mb-1 flex items-center justify-between gap-2 text-[9px] text-slate-500">
+      <span className="mb-1 flex items-center justify-between gap-2 text-[10px] text-slate-500">
         <span>{label}</span>
         <span className="font-mono text-slate-400">{Number(value.toFixed(2))}{suffix}</span>
       </span>
@@ -2312,7 +2322,7 @@ function DockSwitch({ label, detail, checked, onChange }: {
     <label className="flex cursor-pointer items-center justify-between gap-3 py-1.5">
       <span className="min-w-0">
         <span className="block text-[10px] font-medium text-slate-300">{label}</span>
-        {detail && <span className="block truncate text-[8px] text-slate-600">{detail}</span>}
+        {detail && <span className="block truncate text-[10px] text-slate-600">{detail}</span>}
       </span>
       <span className={clsx('relative h-4 w-7 shrink-0 rounded-full transition', checked ? 'bg-sky-500' : 'bg-slate-700')}>
         <input className="sr-only" type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
@@ -2325,10 +2335,10 @@ function DockSwitch({ label, detail, checked, onChange }: {
 function DockColor({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[8px] font-semibold uppercase tracking-wider text-slate-600">{label}</span>
+      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-600">{label}</span>
       <span className="flex h-7 items-center gap-2 rounded-sm border border-white/[0.08] bg-black/30 px-1.5">
         <input className="h-4 w-5 cursor-pointer border-0 bg-transparent p-0" type="color" value={value} onChange={(event) => onChange(event.target.value.toUpperCase())} />
-        <span className="truncate font-mono text-[8px] text-slate-500">{value}</span>
+        <span className="truncate font-mono text-[10px] text-slate-500">{value}</span>
       </span>
     </label>
   );
@@ -2354,7 +2364,7 @@ function ProjectDockPanel({
   const [search, setSearch] = useState('');
   const visibleAssets = assets.filter((asset) => asset.name.toLowerCase().includes(search.trim().toLowerCase()));
   const uploadButton = (kind: 'media' | 'broll' | 'music', label: string, accept: string) => (
-    <label className="flex h-7 cursor-pointer items-center justify-center gap-1 rounded-sm bg-white/[0.045] px-2 text-[9px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white">
+    <label className="flex h-7 cursor-pointer items-center justify-center gap-1 rounded-sm bg-white/[0.045] px-2 text-[10px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white">
       {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
       {label}
       <input
@@ -2385,14 +2395,14 @@ function ProjectDockPanel({
       </DockSection>
       <DockSection
         title="Sequences"
-        action={<button className="text-[8px] font-semibold text-sky-400 hover:text-sky-200" onClick={onOpenSequence}>Open</button>}
+        action={<button className="text-[10px] font-semibold text-sky-400 hover:text-sky-200" onClick={onOpenSequence}>Open</button>}
       >
         <button className="w-full rounded-sm border border-sky-400/15 bg-sky-500/[0.07] p-2 text-left hover:bg-sky-500/10" onDoubleClick={onOpenSequence}>
           <div className="flex items-center gap-2">
             <Layers3 className="h-3.5 w-3.5 text-sky-300" />
             <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-slate-200">{activeSequence?.name || 'Main sequence'}</span>
           </div>
-          <div className="mt-1.5 flex gap-3 font-mono text-[8px] text-slate-600">
+          <div className="mt-1.5 flex gap-3 font-mono text-[10px] text-slate-600">
             <span>{activeSequence?.frameRate || 30} fps</span>
             <span>{activeSequence?.tracks.length || 0} tracks</span>
             <span>{activeSequence?.tracks.reduce((count, track) => count + track.clips.length, 0) || 0} clips</span>
@@ -2423,7 +2433,7 @@ function ProjectDockPanel({
                 {asset.kind === 'music' || asset.kind === 'voiceover' ? <AudioLines className="h-3.5 w-3.5" /> : asset.kind === 'lut' ? <Palette className="h-3.5 w-3.5" /> : <Film className="h-3.5 w-3.5" />}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[9px] font-medium text-slate-300">{asset.name}</span>
+                <span className="block truncate text-[10px] font-medium text-slate-300">{asset.name}</span>
                 <span className="block text-[7px] uppercase tracking-wider text-slate-700">
                   {asset.library ? 'Library · ' : ''}{asset.mediaType || asset.kind}{asset.durationSec ? ` · ${formatTime(asset.durationSec)}` : ''}
                 </span>
@@ -2431,20 +2441,20 @@ function ProjectDockPanel({
             </button>
           ))}
           {!visibleAssets.length && (
-            <div className="border border-dashed border-white/5 px-3 py-6 text-center text-[9px] leading-relaxed text-slate-650">
+            <div className="border border-dashed border-white/5 px-3 py-6 text-center text-[10px] leading-relaxed text-slate-650">
               {assets.length ? 'No project items match this search.' : 'Import media to build B-roll, music, multicam, LUT, and sequence tracks.'}
             </div>
           )}
         </div>
       </DockSection>
       <DockSection title="Project summary">
-        <div className="grid grid-cols-2 gap-1 text-[8px]">
+        <div className="grid grid-cols-2 gap-1 text-[10px]">
           <div className="bg-black/20 p-2 text-slate-600"><span className="block text-sm font-semibold text-white">{creative.titles.length}</span>Graphics</div>
           <div className="bg-black/20 p-2 text-slate-600"><span className="block text-sm font-semibold text-white">{creative.broll.length}</span>B-roll clips</div>
           <div className="bg-black/20 p-2 text-slate-600"><span className="block text-sm font-semibold text-white">{creative.captions.cues.length}</span>Captions</div>
           <div className="bg-black/20 p-2 text-slate-600"><span className="block text-sm font-semibold text-white">{creative.colorWorkflow.versions.length}</span>Grade versions</div>
         </div>
-        <button className="mt-2 flex h-8 w-full items-center justify-center gap-2 rounded-sm bg-white/[0.045] text-[8px] font-semibold text-slate-500 hover:bg-white/[0.08] hover:text-white" onClick={onOpenStorage}>
+        <button className="mt-2 flex h-8 w-full items-center justify-center gap-2 rounded-sm bg-white/[0.045] text-[10px] font-semibold text-slate-500 hover:bg-white/[0.08] hover:text-white" onClick={onOpenStorage}>
           <HardDrive className="h-3.5 w-3.5" /> Admin cache & work files
         </button>
       </DockSection>
@@ -2490,18 +2500,18 @@ function EffectsDockPanel({
               <span className="relative block h-7 border-b border-white/5 bg-gradient-to-r from-slate-800 via-slate-600 to-slate-900">
                 {option.value !== 'cut' && <span className="absolute inset-y-0 left-1/2 w-4 -translate-x-1/2 skew-x-[-18deg] bg-sky-300/25" />}
               </span>
-              <span className="block truncate px-2 py-1 text-[8px] font-semibold text-slate-400 group-hover:text-slate-200">{option.label}</span>
+              <span className="block truncate px-2 py-1 text-[10px] font-semibold text-slate-400 group-hover:text-slate-200">{option.label}</span>
             </button>
           ))}
         </div>
-        <p className="mt-2 text-[8px] leading-relaxed text-slate-650">Click a preset to apply it across eligible cuts. Fine-tune individual joins below.</p>
+        <p className="mt-2 text-[10px] leading-relaxed text-slate-650">Click a preset to apply it across eligible cuts. Fine-tune individual joins below.</p>
       </DockSection>
       <DockSection title={`Sequence joins · ${transitionJoins.length}`}>
         <div className="max-h-52 space-y-1 overflow-y-auto pr-0.5 scrollbar-thin">
           {transitionJoins.slice(0, 30).map((join) => (
             <div key={join.cutId} className="grid grid-cols-[minmax(0,1fr)_116px] items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-white/[0.035]">
               <span className="min-w-0">
-                <span className="block truncate text-[9px] font-medium text-slate-400">Edit {join.joinIndex + 1}</span>
+                <span className="block truncate text-[10px] font-medium text-slate-400">Edit {join.joinIndex + 1}</span>
                 <span className="block font-mono text-[7px] text-slate-700">{formatTimecode(join.sourceTime)}</span>
               </span>
               <select
@@ -2513,13 +2523,13 @@ function EffectsDockPanel({
               </select>
             </div>
           ))}
-          {!transitionJoins.length && <div className="border border-dashed border-white/5 p-4 text-center text-[8px] text-slate-650">Create cuts or blade edit points to add transitions.</div>}
+          {!transitionJoins.length && <div className="border border-dashed border-white/5 p-4 text-center text-[10px] text-slate-650">Create cuts or blade edit points to add transitions.</div>}
         </div>
       </DockSection>
       <DockSection title="Advanced">
         <div className="grid gap-1.5">
-          <button className="flex h-8 items-center gap-2 rounded-sm bg-white/[0.04] px-2 text-[9px] text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={onOpenEffects}><Sparkles className="h-3.5 w-3.5 text-violet-300" /> Time remap, masks, keying & stabilization</button>
-          <button className="flex h-8 items-center gap-2 rounded-sm bg-white/[0.04] px-2 text-[9px] text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={onOpenTemplates}><Layers3 className="h-3.5 w-3.5 text-cyan-300" /> Reusable effect templates</button>
+          <button className="flex h-8 items-center gap-2 rounded-sm bg-white/[0.04] px-2 text-[10px] text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={onOpenEffects}><Sparkles className="h-3.5 w-3.5 text-violet-300" /> Time remap, masks, keying & stabilization</button>
+          <button className="flex h-8 items-center gap-2 rounded-sm bg-white/[0.04] px-2 text-[10px] text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={onOpenTemplates}><Layers3 className="h-3.5 w-3.5 text-cyan-300" /> Reusable effect templates</button>
         </div>
       </DockSection>
     </div>
@@ -2568,15 +2578,15 @@ function GraphicsDockPanel({
               </span>
               <span className="min-w-0">
                 <span className="block text-[10px] font-semibold text-slate-300 group-hover:text-white">{template.label}</span>
-                <span className="block text-[8px] text-slate-650">{template.detail}</span>
+                <span className="block text-[10px] text-slate-650">{template.detail}</span>
                 <span className="mt-1 block text-[7px] font-semibold uppercase tracking-wider text-violet-400">Add at playhead</span>
               </span>
             </button>
           ))}
         </div>
         <div className="mt-2 grid grid-cols-2 gap-1.5">
-          <button className="h-7 rounded-sm bg-white/[0.045] text-[8px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={() => onAddTitle('intro')}>Intro title</button>
-          <button className="h-7 rounded-sm bg-white/[0.045] text-[8px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={() => onAddTitle('outro')}>Outro title</button>
+          <button className="h-7 rounded-sm bg-white/[0.045] text-[10px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={() => onAddTitle('intro')}>Intro title</button>
+          <button className="h-7 rounded-sm bg-white/[0.045] text-[10px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={() => onAddTitle('outro')}>Outro title</button>
         </div>
       </DockSection>
       <DockSection title={`Sequence graphics · ${creative.titles.length}`}>
@@ -2584,13 +2594,13 @@ function GraphicsDockPanel({
           {creative.titles.map((title) => (
             <div key={title.id} className={clsx('group flex items-center gap-2 rounded-sm px-2 py-1.5', selectedTitleId === title.id ? 'bg-violet-500/12 ring-1 ring-inset ring-violet-400/20' : 'hover:bg-white/[0.04]')}>
               <button className="min-w-0 flex-1 text-left" onClick={() => onSelectTitle(title.id)}>
-                <span className="block truncate text-[9px] font-medium text-slate-300">{title.text}</span>
+                <span className="block truncate text-[10px] font-medium text-slate-300">{title.text}</span>
                 <span className="block font-mono text-[7px] text-slate-700">{formatTimecode(title.start)} — {formatTimecode(title.end)}</span>
               </button>
               <button className="grid h-6 w-6 place-items-center text-slate-700 opacity-0 hover:text-red-300 group-hover:opacity-100" onClick={() => onDeleteTitle(title.id)} title="Delete graphic"><Trash2 className="h-3 w-3" /></button>
             </div>
           ))}
-          {!creative.titles.length && <div className="border border-dashed border-white/5 p-5 text-center text-[8px] text-slate-650">Choose a template to add a clean lower third.</div>}
+          {!creative.titles.length && <div className="border border-dashed border-white/5 p-5 text-center text-[10px] text-slate-650">Choose a template to add a clean lower third.</div>}
         </div>
       </DockSection>
     </div>
@@ -2624,8 +2634,8 @@ function TextDockPanel({
           <input className="nle-field pl-7" placeholder="Search transcript" value={search} onChange={(event) => onSearch(event.target.value)} />
         </div>
         <div className="mt-2 grid grid-cols-2 gap-1.5">
-          <button className="h-7 rounded-sm bg-white/[0.045] text-[8px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={onOpenTranscript}>Edit transcript</button>
-          <button className="h-7 rounded-sm bg-white/[0.045] text-[8px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={onOpenCaptions}>Caption tools</button>
+          <button className="h-7 rounded-sm bg-white/[0.045] text-[10px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={onOpenTranscript}>Edit transcript</button>
+          <button className="h-7 rounded-sm bg-white/[0.045] text-[10px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={onOpenCaptions}>Caption tools</button>
         </div>
       </DockSection>
       <DockSection title={`Transcript · ${chunks.length}`}>
@@ -2633,14 +2643,14 @@ function TextDockPanel({
           {chunks.slice(0, 80).map((chunk) => (
             <button key={chunk.id} className="w-full rounded-sm px-2 py-2 text-left hover:bg-white/[0.04]" onClick={() => onSeek(chunk.start)}>
               <span className="mb-1 block font-mono text-[7px] text-sky-500/70">{formatTimecode(chunk.start)}</span>
-              <span className="line-clamp-3 text-[9px] leading-relaxed text-slate-500">{chunk.text}</span>
+              <span className="line-clamp-3 text-[10px] leading-relaxed text-slate-500">{chunk.text}</span>
             </button>
           ))}
-          {!chunks.length && <div className="border border-dashed border-white/5 p-5 text-center text-[8px] text-slate-650">No transcript text is available for this project.</div>}
+          {!chunks.length && <div className="border border-dashed border-white/5 p-5 text-center text-[10px] text-slate-650">No transcript text is available for this project.</div>}
         </div>
       </DockSection>
       <DockSection title="Text summary">
-        <div className="grid grid-cols-2 gap-1 text-[8px]">
+        <div className="grid grid-cols-2 gap-1 text-[10px]">
           <button className="bg-black/20 p-2 text-left text-slate-600 hover:bg-white/[0.04]" onClick={onOpenCaptions}><span className="block text-sm font-semibold text-white">{captions.length}</span>Caption cues</button>
           <div className="bg-black/20 p-2 text-slate-600"><span className="block text-sm font-semibold text-white">{chapters.length}</span>Chapters</div>
         </div>
@@ -2686,20 +2696,20 @@ function PropertiesDockPanel({
           action={<button className="text-slate-700 hover:text-red-300" onClick={() => onDeleteTitle(title.id)} title="Delete graphic"><Trash2 className="h-3.5 w-3.5" /></button>}
         >
           <label className="block">
-            <span className="mb-1 block text-[8px] font-semibold uppercase tracking-wider text-slate-600">Primary text</span>
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-600">Primary text</span>
             <textarea className="nle-field h-14 resize-none py-1.5" value={title.text} maxLength={160} onChange={(event) => onTitleChange(title.id, { text: event.target.value })} />
           </label>
           <label className="mt-2 block">
-            <span className="mb-1 block text-[8px] font-semibold uppercase tracking-wider text-slate-600">Secondary text</span>
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-600">Secondary text</span>
             <input className="nle-field" value={title.subtitle} maxLength={160} onChange={(event) => onTitleChange(title.id, { subtitle: event.target.value })} />
           </label>
         </DockSection>
         <DockSection title="Appearance">
           <div className="grid grid-cols-2 gap-2">
-            <label><span className="mb-1 block text-[8px] text-slate-600">Type</span><select className="nle-field" value={title.style} onChange={(event) => onTitleChange(title.id, { style: event.target.value as typeof title.style })}><option value="lower_third">Lower third</option><option value="center_card">Center card</option></select></label>
-            <label><span className="mb-1 block text-[8px] text-slate-600">Template</span><select className="nle-field" value={title.template} onChange={(event) => onTitleChange(title.id, { template: event.target.value as typeof title.template })}><option value="minimal">Minimal</option><option value="broadcast">Broadcast</option><option value="glass">Glass</option></select></label>
-            <label><span className="mb-1 block text-[8px] text-slate-600">Alignment</span><select className="nle-field" value={title.alignment} onChange={(event) => onTitleChange(title.id, { alignment: event.target.value as typeof title.alignment })}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
-            <label><span className="mb-1 block text-[8px] text-slate-600">Animation</span><select className="nle-field" value={title.animation} onChange={(event) => onTitleChange(title.id, { animation: event.target.value as typeof title.animation })}><option value="none">None</option><option value="fade">Fade</option><option value="slide">Slide</option></select></label>
+            <label><span className="mb-1 block text-[10px] text-slate-600">Type</span><select className="nle-field" value={title.style} onChange={(event) => onTitleChange(title.id, { style: event.target.value as typeof title.style })}><option value="lower_third">Lower third</option><option value="center_card">Center card</option></select></label>
+            <label><span className="mb-1 block text-[10px] text-slate-600">Template</span><select className="nle-field" value={title.template} onChange={(event) => onTitleChange(title.id, { template: event.target.value as typeof title.template })}><option value="minimal">Minimal</option><option value="broadcast">Broadcast</option><option value="glass">Glass</option></select></label>
+            <label><span className="mb-1 block text-[10px] text-slate-600">Alignment</span><select className="nle-field" value={title.alignment} onChange={(event) => onTitleChange(title.id, { alignment: event.target.value as typeof title.alignment })}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+            <label><span className="mb-1 block text-[10px] text-slate-600">Animation</span><select className="nle-field" value={title.animation} onChange={(event) => onTitleChange(title.id, { animation: event.target.value as typeof title.animation })}><option value="none">None</option><option value="fade">Fade</option><option value="slide">Slide</option></select></label>
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2">
             <DockColor label="Text" value={title.textColor} onChange={(textColor) => onTitleChange(title.id, { textColor })} />
@@ -2711,14 +2721,14 @@ function PropertiesDockPanel({
           title="Motion"
           action={(
             <button
-              className="text-[8px] font-semibold text-sky-400 hover:text-sky-200"
+              className="text-[10px] font-semibold text-sky-400 hover:text-sky-200"
               onClick={() => onTitleChange(title.id, titleTransformDefaults(title))}
             >
               Reset
             </button>
           )}
         >
-          <p className="mb-3 text-[8px] leading-relaxed text-slate-650">Select the graphic in the Program monitor, then drag it or use its resize handles. These controls provide frame-accurate adjustments.</p>
+          <p className="mb-3 text-[10px] leading-relaxed text-slate-650">Select the graphic in the Program monitor, then drag it or use its resize handles. These controls provide frame-accurate adjustments.</p>
           <div className="space-y-3">
             <DockRange label="Position X" value={title.x * 100} min={0} max={95} step={0.5} suffix="%" onChange={(x) => onTitleChange(title.id, { x: x / 100 })} />
             <DockRange label="Position Y" value={title.y * 100} min={0} max={95} step={0.5} suffix="%" onChange={(y) => onTitleChange(title.id, { y: y / 100 })} />
@@ -2728,10 +2738,10 @@ function PropertiesDockPanel({
         </DockSection>
         <DockSection title="Timing">
           <div className="grid grid-cols-2 gap-2">
-            <label><span className="mb-1 block text-[8px] text-slate-600">Start</span><input className="nle-field font-mono" type="number" min={0} max={title.end - 0.02} step={0.1} value={title.start} onChange={(event) => onTitleChange(title.id, { start: numberValue(event.target.value, title.start) })} /></label>
-            <label><span className="mb-1 block text-[8px] text-slate-600">End</span><input className="nle-field font-mono" type="number" min={title.start + 0.02} max={sourceDuration} step={0.1} value={title.end} onChange={(event) => onTitleChange(title.id, { end: numberValue(event.target.value, title.end) })} /></label>
+            <label><span className="mb-1 block text-[10px] text-slate-600">Start</span><input className="nle-field font-mono" type="number" min={0} max={title.end - 0.02} step={0.1} value={title.start} onChange={(event) => onTitleChange(title.id, { start: numberValue(event.target.value, title.start) })} /></label>
+            <label><span className="mb-1 block text-[10px] text-slate-600">End</span><input className="nle-field font-mono" type="number" min={title.start + 0.02} max={sourceDuration} step={0.1} value={title.end} onChange={(event) => onTitleChange(title.id, { end: numberValue(event.target.value, title.end) })} /></label>
           </div>
-          <div className="mt-2 font-mono text-[8px] text-slate-600">Duration {formatTimecode(title.end - title.start)}</div>
+          <div className="mt-2 font-mono text-[10px] text-slate-600">Duration {formatTimecode(title.end - title.start)}</div>
         </DockSection>
       </div>
     );
@@ -2740,13 +2750,13 @@ function PropertiesDockPanel({
     <div>
       <DockSection title="Sequence properties">
         <div className="grid grid-cols-2 gap-2">
-          <label><span className="mb-1 block text-[8px] text-slate-600">Preset</span><select className="nle-field" value={creative.exportPreset} onChange={(event) => onCreativeChange({ exportPreset: event.target.value as LongformCreativeOptions['exportPreset'] })}><option value="source">Match source</option><option value="youtube_1080p">YouTube 1080p</option><option value="youtube_4k">YouTube 4K</option><option value="podcast">Podcast</option></select></label>
-          <label><span className="mb-1 block text-[8px] text-slate-600">Edit scope</span><select className="nle-field" value={wholeVideo ? 'whole' : 'range'} onChange={(event) => onScopeChange(event.target.value === 'whole')}><option value="whole">Whole source</option><option value="range">In / Out range</option></select></label>
+          <label><span className="mb-1 block text-[10px] text-slate-600">Preset</span><select className="nle-field" value={creative.exportPreset} onChange={(event) => onCreativeChange({ exportPreset: event.target.value as LongformCreativeOptions['exportPreset'] })}><option value="source">Match source</option><option value="youtube_1080p">YouTube 1080p</option><option value="youtube_4k">YouTube 4K</option><option value="podcast">Podcast</option></select></label>
+          <label><span className="mb-1 block text-[10px] text-slate-600">Edit scope</span><select className="nle-field" value={wholeVideo ? 'whole' : 'range'} onChange={(event) => onScopeChange(event.target.value === 'whole')}><option value="whole">Whole source</option><option value="range">In / Out range</option></select></label>
         </div>
         {!wholeVideo && (
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <label><span className="mb-1 block text-[8px] text-slate-600">Sequence In</span><input className="nle-field font-mono" type="number" min={0} max={options.endSec} step={0.1} value={options.startSec} onChange={(event) => onOptionChange('startSec', numberValue(event.target.value, options.startSec))} /></label>
-            <label><span className="mb-1 block text-[8px] text-slate-600">Sequence Out</span><input className="nle-field font-mono" type="number" min={options.startSec} max={sourceDuration} step={0.1} value={options.endSec} onChange={(event) => onOptionChange('endSec', numberValue(event.target.value, options.endSec))} /></label>
+            <label><span className="mb-1 block text-[10px] text-slate-600">Sequence In</span><input className="nle-field font-mono" type="number" min={0} max={options.endSec} step={0.1} value={options.startSec} onChange={(event) => onOptionChange('startSec', numberValue(event.target.value, options.startSec))} /></label>
+            <label><span className="mb-1 block text-[10px] text-slate-600">Sequence Out</span><input className="nle-field font-mono" type="number" min={options.startSec} max={sourceDuration} step={0.1} value={options.endSec} onChange={(event) => onOptionChange('endSec', numberValue(event.target.value, options.endSec))} /></label>
           </div>
         )}
       </DockSection>
@@ -2754,10 +2764,10 @@ function PropertiesDockPanel({
         <DockSwitch label="Silence removal" detail="Use analyzed and manual removal ranges" checked={options.enabled} onChange={(enabled) => onOptionChange('enabled', enabled)} />
         <DockSwitch label="Advanced sequence" detail="Enable stacked sequence-track compositing" checked={creative.sequence.enabled} onChange={(enabled) => onCreativeChange({ sequence: { ...creative.sequence, enabled } })} />
         <DockSwitch label="Safe margins" detail="Show action and title safe guides" checked={showSafeAreas} onChange={onSafeAreasChange} />
-        <button className="mt-2 flex h-8 w-full items-center justify-center gap-2 rounded-sm bg-white/[0.05] text-[9px] font-semibold text-slate-400 hover:bg-white/[0.09] hover:text-white" onClick={onOpenEditControls}><SlidersHorizontal className="h-3.5 w-3.5" /> Detailed edit controls</button>
+        <button className="mt-2 flex h-8 w-full items-center justify-center gap-2 rounded-sm bg-white/[0.05] text-[10px] font-semibold text-slate-400 hover:bg-white/[0.09] hover:text-white" onClick={onOpenEditControls}><SlidersHorizontal className="h-3.5 w-3.5" /> Detailed edit controls</button>
       </DockSection>
       <DockSection title="Program">
-        <div className="grid grid-cols-2 gap-1 text-[8px]">
+        <div className="grid grid-cols-2 gap-1 text-[10px]">
           <div className="bg-black/20 p-2 text-slate-600"><span className="block font-mono text-[11px] text-slate-300">{formatTimecode(sourceDuration)}</span>Source duration</div>
           <div className="bg-black/20 p-2 text-slate-600"><span className="block font-mono text-[11px] text-slate-300">{creative.sequence.sequences[0]?.frameRate || 30} fps</span>Timebase</div>
         </div>
@@ -2787,10 +2797,10 @@ function QuickColorDockPanel({
   return (
     <div>
       <DockSection title="Lumetri-style color">
-        <button className="flex h-9 w-full items-center justify-center gap-2 rounded-sm bg-gradient-to-r from-cyan-500/15 to-violet-500/15 text-[9px] font-semibold text-cyan-100 ring-1 ring-inset ring-cyan-400/20 hover:from-cyan-500/25 hover:to-violet-500/25" onClick={onOpenColor}>
+        <button className="flex h-9 w-full items-center justify-center gap-2 rounded-sm bg-gradient-to-r from-cyan-500/15 to-violet-500/15 text-[10px] font-semibold text-cyan-100 ring-1 ring-inset ring-cyan-400/20 hover:from-cyan-500/25 hover:to-violet-500/25" onClick={onOpenColor}>
           <WandSparkles className="h-3.5 w-3.5" /> Analyze & Auto Color
         </button>
-        <div className="mt-2 flex items-center justify-between text-[8px] text-slate-650">
+        <div className="mt-2 flex items-center justify-between text-[10px] text-slate-650">
           <span>{creative.colorWorkflow.autoGrade.analyzedAt ? `Last grade ${Math.round(creative.colorWorkflow.autoGrade.confidence * 100)}% confidence` : 'No automatic grade analyzed'}</span>
           <span>{creative.colorWorkflow.versions.length} versions</span>
         </div>
@@ -2805,14 +2815,14 @@ function QuickColorDockPanel({
           <DockRange label="Temperature" value={color.temperature} min={-1} max={1} step={0.01} onChange={(temperature) => patchColor({ temperature })} />
           <DockRange label="Tint" value={color.tint} min={-1} max={1} step={0.01} onChange={(tint) => patchColor({ tint })} />
         </div>
-        <button className="mt-3 h-7 w-full rounded-sm bg-white/[0.04] text-[8px] font-semibold text-slate-500 hover:bg-white/[0.08] hover:text-white" onClick={() => onCreativeChange({ color: { ...DEFAULT_CREATIVE.color } })}>Reset primary correction</button>
+        <button className="mt-3 h-7 w-full rounded-sm bg-white/[0.04] text-[10px] font-semibold text-slate-500 hover:bg-white/[0.08] hover:text-white" onClick={() => onCreativeChange({ color: { ...DEFAULT_CREATIVE.color } })}>Reset primary correction</button>
       </DockSection>
       <DockSection title="Creative LUT">
         <select className="nle-field" value={color.lutAssetId || ''} onChange={(event) => patchColor({ lutAssetId: event.target.value || null })}>
           <option value="">None</option>
           {luts.map((asset) => <option key={asset.id} value={asset.id}>{asset.library ? 'Library · ' : ''}{asset.name}</option>)}
         </select>
-        <label className="mt-2 flex h-8 cursor-pointer items-center justify-center gap-2 rounded-sm border border-dashed border-white/10 text-[8px] font-semibold text-slate-500 hover:border-cyan-400/30 hover:text-cyan-200">
+        <label className="mt-2 flex h-8 cursor-pointer items-center justify-center gap-2 rounded-sm border border-dashed border-white/10 text-[10px] font-semibold text-slate-500 hover:border-cyan-400/30 hover:text-cyan-200">
           {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />} Upload LUT file
           <input className="hidden" type="file" accept=".cube,.3dl,.dat,.m3d" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) onUpload(file); event.currentTarget.value = ''; }} />
         </label>
@@ -2840,8 +2850,8 @@ function QuickAudioDockPanel({
     <div>
       <DockSection title="Essential sound">
         <div className="grid grid-cols-2 gap-1">
-          <div className="bg-emerald-500/[0.07] p-2 text-[8px] text-emerald-200/60"><AudioLines className="mb-1 h-4 w-4 text-emerald-300" />Dialogue</div>
-          <div className="bg-violet-500/[0.07] p-2 text-[8px] text-violet-200/60"><Volume2 className="mb-1 h-4 w-4 text-violet-300" />Music</div>
+          <div className="bg-emerald-500/[0.07] p-2 text-[10px] text-emerald-200/60"><AudioLines className="mb-1 h-4 w-4 text-emerald-300" />Dialogue</div>
+          <div className="bg-violet-500/[0.07] p-2 text-[10px] text-violet-200/60"><Volume2 className="mb-1 h-4 w-4 text-violet-300" />Music</div>
         </div>
       </DockSection>
       <DockSection title="Clip volume">
@@ -2860,7 +2870,7 @@ function QuickAudioDockPanel({
         <DockSwitch label="Automatic music ducking" checked={creative.musicDucking} onChange={(musicDucking) => onCreativeChange({ musicDucking })} />
       </DockSection>
       <DockSection title="Mixer">
-        <button className="flex h-8 w-full items-center justify-center gap-2 rounded-sm bg-white/[0.05] text-[9px] font-semibold text-slate-400 hover:bg-white/[0.09] hover:text-white" onClick={onOpenMixer}><SlidersHorizontal className="h-3.5 w-3.5" /> Open track mixer & keyframes</button>
+        <button className="flex h-8 w-full items-center justify-center gap-2 rounded-sm bg-white/[0.05] text-[10px] font-semibold text-slate-400 hover:bg-white/[0.09] hover:text-white" onClick={onOpenMixer}><SlidersHorizontal className="h-3.5 w-3.5" /> Open track mixer & keyframes</button>
       </DockSection>
     </div>
   );
@@ -2886,14 +2896,14 @@ function ExportDockPanel({
   return (
     <div>
       <DockSection title="Export settings">
-        <label className="block"><span className="mb-1 block text-[8px] text-slate-600">Preset</span><select className="nle-field" value={creative.exportPreset} onChange={(event) => onCreativeChange({ exportPreset: event.target.value as LongformCreativeOptions['exportPreset'] })}><option value="source">Match source</option><option value="youtube_1080p">YouTube 1080p</option><option value="youtube_4k">YouTube 4K</option><option value="podcast">Podcast</option></select></label>
+        <label className="block"><span className="mb-1 block text-[10px] text-slate-600">Preset</span><select className="nle-field" value={creative.exportPreset} onChange={(event) => onCreativeChange({ exportPreset: event.target.value as LongformCreativeOptions['exportPreset'] })}><option value="source">Match source</option><option value="youtube_1080p">YouTube 1080p</option><option value="youtube_4k">YouTube 4K</option><option value="podcast">Podcast</option></select></label>
         <div className="mt-2 grid grid-cols-2 gap-2">
-          <label><span className="mb-1 block text-[8px] text-slate-600">Frame</span><select className="nle-field" value={creative.delivery.aspect} onChange={(event) => onCreativeChange({ delivery: { ...creative.delivery, aspect: event.target.value as typeof creative.delivery.aspect } })}><option value="source">Source</option><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="9:16">9:16</option></select></label>
-          <label><span className="mb-1 block text-[8px] text-slate-600">Reframe</span><select className="nle-field" value={creative.delivery.reframe} onChange={(event) => onCreativeChange({ delivery: { ...creative.delivery, reframe: event.target.value as typeof creative.delivery.reframe } })}><option value="contain">Contain</option><option value="smart_crop">Smart crop</option><option value="stretch">Stretch</option></select></label>
+          <label><span className="mb-1 block text-[10px] text-slate-600">Frame</span><select className="nle-field" value={creative.delivery.aspect} onChange={(event) => onCreativeChange({ delivery: { ...creative.delivery, aspect: event.target.value as typeof creative.delivery.aspect } })}><option value="source">Source</option><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="9:16">9:16</option></select></label>
+          <label><span className="mb-1 block text-[10px] text-slate-600">Reframe</span><select className="nle-field" value={creative.delivery.reframe} onChange={(event) => onCreativeChange({ delivery: { ...creative.delivery, reframe: event.target.value as typeof creative.delivery.reframe } })}><option value="contain">Contain</option><option value="smart_crop">Smart crop</option><option value="stretch">Stretch</option></select></label>
         </div>
       </DockSection>
       <DockSection title="Summary">
-        <div className="space-y-1.5 font-mono text-[8px] text-slate-600">
+        <div className="space-y-1.5 font-mono text-[10px] text-slate-600">
           <div className="flex justify-between"><span>Sequence</span><span className="text-slate-300">{formatTimecode(finishedDuration)}</span></div>
           <div className="flex justify-between"><span>Captions</span><span className="text-slate-300">{creative.captions.burnIn ? 'Burned in' : creative.captions.enabled ? 'Sidecar' : 'Off'}</span></div>
           <div className="flex justify-between"><span>Color</span><span className="text-slate-300">{creative.color.lutAssetId ? 'LUT + grade' : 'Manual grade'}</span></div>
@@ -2901,12 +2911,12 @@ function ExportDockPanel({
         </div>
       </DockSection>
       <DockSection title="Output">
-        <button className="flex h-9 w-full items-center justify-center gap-2 rounded-sm bg-[#2678c9] text-[9px] font-semibold text-white hover:bg-[#3189df] disabled:opacity-50" disabled={renderBusy} onClick={onRender}>
+        <button className="flex h-9 w-full items-center justify-center gap-2 rounded-sm bg-[#2678c9] text-[10px] font-semibold text-white hover:bg-[#3189df] disabled:opacity-50" disabled={renderBusy} onClick={onRender}>
           {renderBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5 fill-current" />} Render master
         </button>
         <div className="mt-2 grid grid-cols-2 gap-1.5">
-          <button className="h-8 rounded-sm bg-white/[0.045] text-[8px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={onOpenPublish}>Publish package</button>
-          <button className="h-8 rounded-sm bg-white/[0.045] text-[8px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={onOpenInterchange}>AAF / XML / EDL</button>
+          <button className="h-8 rounded-sm bg-white/[0.045] text-[10px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={onOpenPublish}>Publish package</button>
+          <button className="h-8 rounded-sm bg-white/[0.045] text-[10px] font-semibold text-slate-400 hover:bg-white/[0.08] hover:text-white" onClick={onOpenInterchange}>AAF / XML / EDL</button>
         </div>
       </DockSection>
     </div>
@@ -2938,6 +2948,7 @@ function Timeline({
   onAddCut,
   onCutBoundsChange,
   onTitleSelect,
+  onAddTitle,
   onCreativeChange,
   onOpenPanel,
 }: {
@@ -2965,6 +2976,8 @@ function Timeline({
   onAddCut: () => void;
   onCutBoundsChange: (id: string, start: number, end: number) => boolean;
   onTitleSelect: (id: string) => void;
+  /** Create a title starting at the given sequence time (Type tool). */
+  onAddTitle: (atSeconds: number) => void;
   onCreativeChange: (patch: Partial<LongformCreativeOptions>) => void;
   onOpenPanel: (panel: Exclude<WindowPanel, null>) => void;
 }) {
@@ -3305,6 +3318,11 @@ function Timeline({
     }
     if (activeTool === 'razor') {
       onBlade(time);
+      onSeek(time);
+      return;
+    }
+    if (activeTool === 'type') {
+      onAddTitle(time);
       onSeek(time);
       return;
     }
@@ -3678,12 +3696,43 @@ function Timeline({
       sourceStart: clip.sourceStart,
       sourceEnd: clip.sourceEnd,
     };
+    // A rolling edit moves the cut shared with the neighbouring clip, so it can
+    // never be dragged past that clip's far edge — doing so would collapse it.
+    const rollingNeighbour = activeTool === 'rolling'
+      ? track.clips.find((candidate) => candidate.id !== clip.id && (
+          edge === 'start'
+            ? Math.abs(candidate.timelineEnd - original.timelineStart) < 0.04
+            : Math.abs(candidate.timelineStart - original.timelineEnd) < 0.04
+        ))
+      : undefined;
+    const trimLimit = rollingNeighbour
+      ? (edge === 'start'
+          ? rollingNeighbour.timelineStart + 0.05
+          : rollingNeighbour.timelineEnd - 0.05)
+      : null;
     let draft = original;
     let changed = false;
-    handle.setPointerCapture(pointerId);
+    // The trim handle is only ~1.5px wide, so the drag must be tracked on the
+    // window: element-scoped listeners stop firing the moment the pointer
+    // leaves the handle, which silently aborted trims mid-drag.
+    try { handle.setPointerCapture(pointerId); } catch { /* capture is optional */ }
     const move = (moveEvent: PointerEvent) => {
       const ratio = clampValue((moveEvent.clientX - laneBounds.left) / Math.max(1, laneBounds.width), 0, 1);
-      const time = snapSequenceTime(ratio * safeDuration);
+      const time = trimLimit === null
+        ? snapSequenceTime(ratio * safeDuration)
+        : edge === 'start'
+          ? Math.max(trimLimit, snapSequenceTime(ratio * safeDuration))
+          : Math.min(trimLimit, snapSequenceTime(ratio * safeDuration));
+      if (activeTool === 'rate') {
+        // Rate stretch keeps the source range and retimes it into the new
+        // timeline duration; the speed multiplier is derived on release.
+        draft = edge === 'start'
+          ? { ...original, timelineStart: clampValue(time, 0, original.timelineEnd - 0.05) }
+          : { ...original, timelineEnd: Math.max(original.timelineStart + 0.05, time) };
+        changed = true;
+        setSequenceTrimPreview(draft);
+        return;
+      }
       if (edge === 'start') {
         const timelineStart = clampValue(time, 0, original.timelineEnd - 0.02);
         const delta = timelineStart - original.timelineStart;
@@ -3709,21 +3758,34 @@ function Timeline({
       setSequenceTrimPreview(draft);
     };
     const finish = () => {
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', finish);
-      handle.removeEventListener('pointercancel', finish);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
       if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
       setSequenceTrimPreview(null);
       if (!changed) return;
       const delta = edge === 'start'
         ? draft.timelineStart - original.timelineStart
         : draft.timelineEnd - original.timelineEnd;
-      const clipPatch = {
-        timelineStart: draft.timelineStart,
-        timelineEnd: draft.timelineEnd,
-        sourceStart: draft.sourceStart,
-        sourceEnd: draft.sourceEnd,
-      };
+      const clipPatch = activeTool === 'rate'
+        ? {
+            timelineStart: draft.timelineStart,
+            timelineEnd: draft.timelineEnd,
+            speed: {
+              ...clip.speed,
+              rate: clampValue(
+                (original.sourceEnd - original.sourceStart) / Math.max(0.05, draft.timelineEnd - draft.timelineStart),
+                0.05,
+                20,
+              ),
+            },
+          }
+        : {
+            timelineStart: draft.timelineStart,
+            timelineEnd: draft.timelineEnd,
+            sourceStart: draft.sourceStart,
+            sourceEnd: draft.sourceEnd,
+          };
       updateActiveSequence((sequence) => ({
         ...sequence,
         tracks: sequence.tracks.map((item) => {
@@ -3768,9 +3830,128 @@ function Timeline({
         }),
       }));
     };
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', finish);
-    handle.addEventListener('pointercancel', finish);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  };
+  /**
+   * Slip and slide edits, both dragged from the clip body.
+   *
+   * Slip keeps the clip where it is on the timeline and moves the source
+   * window underneath it. Slide keeps the source window and moves the clip,
+   * letting the neighbouring clips absorb the change so the sequence
+   * duration never shifts.
+   */
+  const beginSequenceSlipSlide = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    track: LongformSequenceTrack,
+    clip: LongformSequenceClip,
+    mode: 'slip' | 'slide',
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (track.locked) return;
+    const lane = event.currentTarget.closest<HTMLElement>('[data-timeline-track-lane]');
+    if (!lane) return;
+    const laneBounds = lane.getBoundingClientRect();
+    const handle = event.currentTarget;
+    const pointerId = event.pointerId;
+    const startClientX = event.clientX;
+    const secondsPerPixel = safeDuration / Math.max(1, laneBounds.width);
+    const rate = clip.speed.rate || 1;
+    const original = {
+      trackId: track.id,
+      clipId: clip.id,
+      timelineStart: clip.timelineStart,
+      timelineEnd: clip.timelineEnd,
+      sourceStart: clip.sourceStart,
+      sourceEnd: clip.sourceEnd,
+    };
+    const previous = mode === 'slide'
+      ? track.clips.find((candidate) => candidate.id !== clip.id
+          && Math.abs(candidate.timelineEnd - original.timelineStart) < 0.04)
+      : undefined;
+    const next = mode === 'slide'
+      ? track.clips.find((candidate) => candidate.id !== clip.id
+          && Math.abs(candidate.timelineStart - original.timelineEnd) < 0.04)
+      : undefined;
+    let draft = original;
+    let changed = false;
+    // Clips can be only a few pixels wide at low zoom, so the drag listeners go
+    // on the window rather than the clip element; pointer capture is a
+    // best-effort extra that some browsers refuse for synthetic pointers.
+    try { handle.setPointerCapture(pointerId); } catch { /* capture is optional */ }
+
+    const move = (moveEvent: PointerEvent) => {
+      const deltaSec = (moveEvent.clientX - startClientX) * secondsPerPixel;
+      if (mode === 'slip') {
+        // Dragging right pulls earlier source material into the clip, as in Premiere.
+        const shift = clampValue(-deltaSec * rate, -original.sourceStart, 24 * 60 * 60 - original.sourceEnd);
+        draft = {
+          ...original,
+          sourceStart: original.sourceStart + shift,
+          sourceEnd: original.sourceEnd + shift,
+        };
+      } else {
+        const duration = original.timelineEnd - original.timelineStart;
+        const minStart = previous ? previous.timelineStart + 0.05 : 0;
+        const maxStart = Math.max(minStart, (next ? next.timelineEnd - 0.05 : safeDuration) - duration);
+        const timelineStart = clampValue(original.timelineStart + deltaSec, minStart, maxStart);
+        draft = { ...original, timelineStart, timelineEnd: timelineStart + duration };
+      }
+      changed = true;
+      setSequenceTrimPreview(draft);
+    };
+
+    const finish = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+      setSequenceTrimPreview(null);
+      if (!changed) return;
+      const delta = draft.timelineStart - original.timelineStart;
+      updateActiveSequence((sequence) => ({
+        ...sequence,
+        tracks: sequence.tracks.map((item) => {
+          if (item.id !== track.id) return item;
+          return {
+            ...item,
+            clips: item.clips.map((candidate) => {
+              if (candidate.id === clip.id) {
+                return mode === 'slip'
+                  ? { ...candidate, sourceStart: draft.sourceStart, sourceEnd: draft.sourceEnd }
+                  : { ...candidate, timelineStart: draft.timelineStart, timelineEnd: draft.timelineEnd };
+              }
+              if (mode !== 'slide') return candidate;
+              if (previous && candidate.id === previous.id) {
+                return {
+                  ...candidate,
+                  timelineEnd: draft.timelineStart,
+                  ...(candidate.speed.reverse
+                    ? { sourceStart: Math.max(0, candidate.sourceStart - delta * candidate.speed.rate) }
+                    : { sourceEnd: Math.max(candidate.sourceStart + 0.02, candidate.sourceEnd + delta * candidate.speed.rate) }),
+                };
+              }
+              if (next && candidate.id === next.id) {
+                return {
+                  ...candidate,
+                  timelineStart: draft.timelineEnd,
+                  ...(candidate.speed.reverse
+                    ? { sourceEnd: Math.max(candidate.sourceStart + 0.02, candidate.sourceEnd - delta * candidate.speed.rate) }
+                    : { sourceStart: Math.max(0, candidate.sourceStart + delta * candidate.speed.rate) }),
+                };
+              }
+              return candidate;
+            }).sort((left, right) => left.timelineStart - right.timelineStart),
+          };
+        }),
+      }));
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
   };
   const patchSequenceTrack = (trackId: string, patch: Partial<LongformCreativeOptions['sequence']['sequences'][number]['tracks'][number]>) => {
     if (!activeSequence) return;
@@ -3804,6 +3985,7 @@ function Timeline({
             dragging && 'opacity-45',
             !clip.enabled && 'opacity-35',
             activeTool === 'razor' && 'cursor-crosshair',
+            (activeTool === 'slip' || activeTool === 'slide') && 'cursor-ew-resize',
           )}
           data-sequence-clip={clip.id}
           data-timeline-item-key={itemKey}
@@ -3814,7 +3996,13 @@ function Timeline({
             setDraggingTimelineItemKeys([]);
             setDropIndicator(null);
           }}
-          onPointerDown={(event) => timelineItem && selectTimelineItem(event, timelineItem)}
+          onPointerDown={(event) => {
+            if (!timelineItem) return;
+            selectTimelineItem(event, timelineItem);
+            if (activeTool === 'slip' || activeTool === 'slide') {
+              beginSequenceSlipSlide(event, track, clip, activeTool);
+            }
+          }}
           onClick={(event) => {
             event.stopPropagation();
             if (activeTool === 'razor') {
@@ -3896,7 +4084,7 @@ function Timeline({
         }}
         title={`Program ${formatTime(start)}–${formatTime(end)}`}
       >
-        <span className="absolute left-2 top-1 truncate text-[8px] font-semibold text-sky-50/80">Program video</span>
+        <span className="absolute left-2 top-1 truncate text-[10px] font-semibold text-sky-50/80">Program video</span>
       </button>
       {manualEnd > manualStart && (
         <div className="pointer-events-none absolute inset-y-0 border-x border-amber-300/60 bg-amber-300/[0.06]" style={{ left: position(manualStart), width: width(manualStart, manualEnd) }} />
@@ -4008,6 +4196,7 @@ function Timeline({
                 onClick={() => onToolChange(tool.id)}
                 title={`${tool.label} (${tool.shortcut})`}
                 aria-label={`${tool.label} tool`}
+                aria-pressed={activeTool === tool.id}
               >
                 <Icon className="h-3.5 w-3.5" />
               </button>
@@ -4015,8 +4204,8 @@ function Timeline({
           })}
         </div>
         <span className="mx-1 h-5 w-px bg-white/[0.06]" />
-        <button className={clsx('nle-icon-button', snapEnabled && 'text-sky-300')} onClick={() => onSnapChange(!snapEnabled)} title="Snap in Timeline (S)"><Magnet className="h-3.5 w-3.5" /></button>
-        <button className={clsx('nle-icon-button', linkedSelection && 'text-sky-300')} onClick={() => setLinkedSelection((current) => !current)} title="Linked selection"><Link2 className="h-3.5 w-3.5" /></button>
+        <button className={clsx('nle-icon-button', snapEnabled && 'text-sky-300')} onClick={() => onSnapChange(!snapEnabled)} title="Snap in Timeline (S)" aria-label="Snap in Timeline (S)" aria-pressed={snapEnabled}><Magnet className="h-3.5 w-3.5" /></button>
+        <button className={clsx('nle-icon-button', linkedSelection && 'text-sky-300')} onClick={() => setLinkedSelection((current) => !current)} title="Linked selection" aria-label="Linked selection" aria-pressed={linkedSelection}><Link2 className="h-3.5 w-3.5" /></button>
         <button
           className="nle-icon-button text-slate-600 enabled:hover:text-red-300"
           disabled={!selectedMovableItems.length}
@@ -4032,17 +4221,17 @@ function Timeline({
           </span>
         )}
         <span className="mx-1 h-5 w-px bg-white/[0.06]" />
-        <button className="nle-text-button" onClick={onMarkIn} title="Mark In (I)">I</button>
-        <button className="nle-text-button" onClick={onMarkOut} title="Mark Out (O)">O</button>
-        <button className="hidden h-7 items-center gap-1 rounded-sm bg-red-500/10 px-2 text-[8px] font-semibold text-red-200 hover:bg-red-500/20 disabled:opacity-30 sm:flex" disabled={manualEnd - manualStart < 0.02} onClick={onAddCut} title="Add the marked range to removals">
+        <button className="nle-text-button" onClick={onMarkIn} title="Mark In (I)" aria-label="Mark In (I)">I</button>
+        <button className="nle-text-button" onClick={onMarkOut} title="Mark Out (O)" aria-label="Mark Out (O)">O</button>
+        <button className="hidden h-7 items-center gap-1 rounded-sm bg-red-500/10 px-2 text-[10px] font-semibold text-red-200 hover:bg-red-500/20 disabled:opacity-30 sm:flex" disabled={manualEnd - manualStart < 0.02} onClick={onAddCut} title="Add the marked range to removals">
           <Scissors className="h-3 w-3" /> Remove In–Out
         </button>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <button className="hidden h-7 items-center gap-1 rounded-sm px-2 text-[8px] font-semibold text-slate-500 hover:bg-white/[0.06] hover:text-white lg:flex" onClick={() => onOpenPanel({ suite: 'cuts', tab: 'cuts' })}>Cuts</button>
-          <button className="hidden h-7 items-center gap-1 rounded-sm px-2 text-[8px] font-semibold text-slate-500 hover:bg-white/[0.06] hover:text-white lg:flex" onClick={() => onOpenPanel({ suite: 'v3', tab: 'timeline' })}>Sequence</button>
+          <button className="hidden h-7 items-center gap-1 rounded-sm px-2 text-[10px] font-semibold text-slate-500 hover:bg-white/[0.06] hover:text-white lg:flex" onClick={() => onOpenPanel({ suite: 'cuts', tab: 'cuts' })}>Cuts</button>
+          <button className="hidden h-7 items-center gap-1 rounded-sm px-2 text-[10px] font-semibold text-slate-500 hover:bg-white/[0.06] hover:text-white lg:flex" onClick={() => onOpenPanel({ suite: 'v3', tab: 'timeline' })}>Sequence</button>
           <ZoomIn className="ml-1 h-3 w-3 text-slate-700" />
           <input className="h-1 w-20 accent-sky-500" type="range" min={1} max={8} step={0.25} value={zoom} onChange={(event) => setZoom(numberValue(event.target.value, zoom))} aria-label="Timeline zoom" />
-          <span className="w-8 font-mono text-[8px] text-slate-600">{Math.round(zoom * 100)}%</span>
+          <span className="w-8 font-mono text-[10px] text-slate-600">{Math.round(zoom * 100)}%</span>
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto scrollbar-thin">
@@ -4052,7 +4241,7 @@ function Timeline({
           data-timeline-canvas
         >
           <div className="grid h-6 grid-cols-[116px_minmax(0,1fr)] border-b border-black bg-[#181818]">
-            <div className="sticky left-0 z-30 flex items-center border-r border-black bg-[#1c1c1c] px-2 font-mono text-[8px] text-sky-200">{formatTimecode(playhead)}</div>
+            <div className="sticky left-0 z-30 flex items-center border-r border-black bg-[#1c1c1c] px-2 font-mono text-[10px] text-sky-200">{formatTimecode(playhead)}</div>
             <div
               className={clsx('relative', activeCursor)}
               onPointerDown={handleTimelinePointer}
@@ -4105,7 +4294,7 @@ function Timeline({
                 key={title.id}
                 draggable={activeTool === 'selection'}
                 className={clsx(
-                  'absolute inset-y-1 select-none overflow-hidden border px-1.5 text-left text-[8px] font-semibold text-violet-50 hover:bg-violet-500/75',
+                  'absolute inset-y-1 select-none overflow-hidden border px-1.5 text-left text-[10px] font-semibold text-violet-50 hover:bg-violet-500/75',
                   selected
                     ? 'z-10 border-violet-50 bg-violet-500/85 ring-2 ring-inset ring-violet-100/80'
                     : 'border-violet-300/25 bg-violet-500/55',
@@ -4126,7 +4315,10 @@ function Timeline({
                 }}
                 title={`${title.text} · ${formatTimecode(title.start)}–${formatTimecode(title.end)} · drag to move`}
               >
-                <Type className="mr-1 inline h-2.5 w-2.5" /><span className="truncate">{title.text}</span>
+                <span className="flex items-center gap-1 leading-none">
+                  <Type className="h-2.5 w-2.5 shrink-0" />
+                  <span className="truncate">{title.text}</span>
+                </span>
               </button>
             );
           })}
@@ -4168,7 +4360,7 @@ function Timeline({
                 key={item.id}
                 draggable={activeTool === 'selection'}
                 className={clsx(
-                  'absolute inset-y-1 select-none overflow-hidden border bg-sky-500/55 px-1.5 text-left text-[8px] font-semibold text-sky-50 hover:bg-sky-500/70',
+                  'absolute inset-y-1 select-none overflow-hidden border bg-sky-500/55 px-1.5 text-left text-[10px] font-semibold text-sky-50 hover:bg-sky-500/70',
                   selected ? 'z-10 border-sky-50 bg-sky-500/85 ring-2 ring-inset ring-sky-100/80' : 'border-sky-300/25',
                   draggingTimelineItemKeys.includes(itemKey) && 'opacity-45',
                 )}
@@ -4479,13 +4671,13 @@ function TimelineTrackRow({
   return (
     <div className={clsx('grid h-9 grid-cols-[116px_minmax(0,1fr)] border-b border-black', hidden && 'opacity-45')}>
       <div className="sticky left-0 z-30 flex min-w-0 items-center border-r border-black bg-[#202020]">
-        <button className={clsx('ml-1 grid h-6 w-7 shrink-0 place-items-center border text-[8px] font-bold', targetClass)} title={`Target ${trackId}`}>{trackId}</button>
-        <span className="min-w-0 flex-1 truncate px-1.5 text-[8px] font-medium text-slate-500" title={name}>{name}</span>
+        <button className={clsx('ml-1 grid h-6 w-7 shrink-0 place-items-center border text-[10px] font-bold', targetClass)} title={`Target ${trackId}`}>{trackId}</button>
+        <span className="min-w-0 flex-1 truncate px-1.5 text-[10px] font-medium text-slate-500" title={name}>{name}</span>
         <div className="flex shrink-0 items-center pr-1">
           {onLocked && <button className={clsx('grid h-6 w-5 place-items-center', locked ? 'text-amber-300' : 'text-slate-700 hover:text-slate-300')} onClick={() => onLocked(!locked)} title={locked ? 'Unlock track' : 'Lock track'}><Lock className="h-2.5 w-2.5" /></button>}
           {onHidden && <button className={clsx('grid h-6 w-5 place-items-center', hidden ? 'text-red-300' : 'text-slate-700 hover:text-slate-300')} onClick={() => onHidden(!hidden)} title={hidden ? 'Show track output' : 'Hide track output'}>{hidden ? <EyeOff className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}</button>}
-          {onMuted && <button className={clsx('grid h-6 w-5 place-items-center text-[8px] font-bold', muted ? 'text-red-300' : 'text-slate-700 hover:text-slate-300')} onClick={() => onMuted(!muted)} title={muted ? 'Unmute track' : 'Mute track'}>M</button>}
-          {onSolo && <button className={clsx('grid h-6 w-5 place-items-center text-[8px] font-bold', solo ? 'text-amber-200' : 'text-slate-700 hover:text-slate-300')} onClick={() => onSolo(!solo)} title="Solo track">S</button>}
+          {onMuted && <button className={clsx('grid h-6 w-5 place-items-center text-[10px] font-bold', muted ? 'text-red-300' : 'text-slate-700 hover:text-slate-300')} onClick={() => onMuted(!muted)} title={muted ? 'Unmute track' : 'Mute track'}>M</button>}
+          {onSolo && <button className={clsx('grid h-6 w-5 place-items-center text-[10px] font-bold', solo ? 'text-amber-200' : 'text-slate-700 hover:text-slate-300')} onClick={() => onSolo(!solo)} title="Solo track">S</button>}
           {!onHidden && !onMuted && kind !== 'caption' && <span className="grid h-6 w-5 place-items-center text-slate-800">{kind === 'audio' ? <VolumeX className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}</span>}
         </div>
       </div>
@@ -4659,7 +4851,7 @@ function TranscriptPanel({ wordsAvailable, words, chunks, suggestions, cuts, dis
                         active ? 'bg-brand-500/15 text-white ring-1 ring-inset ring-brand-500/25' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200',
                       )}
                     >
-                      <button className="mr-2 font-mono text-[9px] text-slate-600 hover:text-slate-300" onClick={() => onSeek(chunk.start)} title="Seek to passage">{formatTime(chunk.start)}</button>
+                      <button className="mr-2 font-mono text-[10px] text-slate-600 hover:text-slate-300" onClick={() => onSeek(chunk.start)} title="Seek to passage">{formatTime(chunk.start)}</button>
                       {words.slice(chunk.startIndex, chunk.endIndex + 1).map((word, offset) => {
                         const wordIndex = chunk.startIndex + offset;
                         const selected = Boolean(selectedWordRange && wordIndex >= selectedWordRange[0] && wordIndex <= selectedWordRange[1]);
@@ -4793,7 +4985,7 @@ function CreativePanel({ creative, assets, playhead, min, max, transitionJoins, 
                   </button>
                   <div className="min-w-0 self-center">
                     <div className="truncate text-xs font-semibold text-slate-200">{join.kind === 'blade' ? 'Blade' : 'Join'} {join.joinIndex + 1}</div>
-                    <div className="font-mono text-[9px] text-slate-600">{formatTime(join.gapStart)} → {formatTime(join.gapEnd)}</div>
+                    <div className="font-mono text-[10px] text-slate-600">{formatTime(join.gapStart)} → {formatTime(join.gapEnd)}</div>
                   </div>
                   <label>
                     <span className="label">Transition</span>
@@ -4819,7 +5011,7 @@ function CreativePanel({ creative, assets, playhead, min, max, transitionJoins, 
                         value={transition.type === 'cut' ? 0 : transition.duration}
                         onChange={(event) => onTransitionChange(join.cutId, transition.type, Number(event.target.value))}
                       />
-                      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] text-slate-600">sec</span>
+                      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-600">sec</span>
                     </div>
                   </label>
                   <label>
@@ -4835,7 +5027,7 @@ function CreativePanel({ creative, assets, playhead, min, max, transitionJoins, 
                         onChange={(event) => onAudioOffsetChange(join.cutId, Number(event.target.value))}
                         title="Negative starts the incoming audio early (J-cut); positive lets outgoing audio continue (L-cut)"
                       />
-                      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-600">sec</span>
+                      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-600">sec</span>
                     </div>
                   </label>
                 </div>
@@ -4867,7 +5059,7 @@ function CreativePanel({ creative, assets, playhead, min, max, transitionJoins, 
               <div className="flex items-center justify-between gap-3">
                 <button className="min-w-0 text-left" onClick={() => onSeek(title.start)}>
                   <span className="block truncate text-xs font-semibold text-slate-200">{title.text || `Graphic ${index + 1}`}</span>
-                  <span className="mt-0.5 block font-mono text-[9px] text-slate-600">{formatTime(title.start)} — {formatTime(title.end)}</span>
+                  <span className="mt-0.5 block font-mono text-[10px] text-slate-600">{formatTime(title.start)} — {formatTime(title.end)}</span>
                 </button>
                 <button className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-600 hover:bg-red-500/10 hover:text-red-300" onClick={() => onDeleteTitle(title.id)} aria-label="Delete title"><Trash2 className="h-3.5 w-3.5" /></button>
               </div>
@@ -5019,7 +5211,7 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
       <span className="label">{label}</span>
       <span className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-black/30 px-2">
         <input className="h-5 w-7 cursor-pointer border-0 bg-transparent p-0" type="color" value={value} onChange={(event) => onChange(event.target.value.toUpperCase())} />
-        <span className="truncate font-mono text-[9px] text-slate-500">{value}</span>
+        <span className="truncate font-mono text-[10px] text-slate-500">{value}</span>
       </span>
     </label>
   );
@@ -5290,7 +5482,7 @@ function TitlePreviewOverlay({
             data-title-handle="scale"
             title="Scale graphic"
           />
-          <span className="pointer-events-none absolute -top-5 left-0 rounded-sm bg-sky-500 px-1.5 py-0.5 text-[8px] font-semibold text-white shadow">Motion · drag to position</span>
+          <span className="pointer-events-none absolute -top-5 left-0 rounded-sm bg-sky-500 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow">Motion · drag to position</span>
         </>
       )}
     </div>

@@ -771,6 +771,7 @@ export interface ClipMetadata extends ClipSummary {
   subtitle_y?: number | null;
   subtitle_width?: number | null;
   subtitle_fontsize?: number | null;
+  subtitle_glow?: boolean;
   video_zoom?: number | string | null;
   video_pan_x?: number | string | null;
   video_pan_y?: number | string | null;
@@ -1005,6 +1006,7 @@ export interface BatchReRenderBody {
   subtitle_y?: number | null;
   subtitle_width?: number | null;
   subtitle_fontsize?: number | null;
+  subtitle_glow?: boolean;
 }
 
 export interface StorageMetrics {
@@ -1093,8 +1095,9 @@ export const api = {
   bakeDownloadUrl: (jobId: string, name: string) =>
     `/api/bake-download/${encodeURIComponent(jobId)}?name=${encodeURIComponent(name)}`,
 
-  // Thumbnail (served by the new thumbnail endpoint)
-  clipThumbnailUrl: (name: string) => `/api/clips/${encodeURIComponent(name)}/thumbnail?t=${Date.now()}`,
+  // Thumbnail (served by the new thumbnail endpoint; the server sets Cache-Control
+  // headers, so no client-side cache-buster — the clips list has no timestamp to key one off)
+  clipThumbnailUrl: (name: string) => `/api/clips/${encodeURIComponent(name)}/thumbnail`,
   generateMoreClips: (name: string, count = 5) =>
     request<{ status: string; requested: number; remainingBeforeRender: number }>(`/api/clips/${encodeURIComponent(name)}/generate-more`, {
       method: 'POST',

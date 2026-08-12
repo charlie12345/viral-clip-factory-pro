@@ -4689,8 +4689,10 @@ def render_more_from_candidate_manifest(manifest_path, requested_count, args, ca
                 pass
 
 
-def render_clip(video_path, clip_data, static_center, index, is_hdr, do_upscale, subtitle_style="classic", subtitle_animation="none", output_path=None, sub_pos_x=None, sub_pos_y=None, sub_font_size=None, bake_subtitles=True, font_override=None, sub_width=None, video_zoom=1.0, video_pan_x=0.0, video_pan_y=0.0, metadata_source_path=None):
+def render_clip(video_path, clip_data, static_center, index, is_hdr, do_upscale, subtitle_style="classic", subtitle_animation="none", subtitle_glow=False, output_path=None, sub_pos_x=None, sub_pos_y=None, sub_font_size=None, bake_subtitles=True, font_override=None, sub_width=None, video_zoom=1.0, video_pan_x=0.0, video_pan_y=0.0, metadata_source_path=None):
     """Render a single 9:16 clip using SOURCE VIDEO with static crop and optional subtitles"""
+    subtitle_style = normalize_subtitle_style(subtitle_style)
+    subtitle_animation = normalize_subtitle_animation(subtitle_animation)
     start_time = clip_data["start"]
     end_time = clip_data["end"]
     duration = end_time - start_time
@@ -4715,7 +4717,8 @@ def render_clip(video_path, clip_data, static_center, index, is_hdr, do_upscale,
     else:
         filename = os.path.basename(output_path)
     animation_label = subtitle_animation if subtitle_animation and subtitle_animation != "none" else "none"
-    print(f"🎬 Rendering Clip #{index+1}: {filename} ({duration:.1f}s) [Style: {subtitle_style}, Animation: {animation_label}]")
+    glow_label = "on" if subtitle_glow else "off"
+    print(f"🎬 Rendering Clip #{index+1}: {filename} ({duration:.1f}s) [Style: {subtitle_style}, Animation: {animation_label}, Glow: {glow_label}]")
 
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -4741,6 +4744,7 @@ def render_clip(video_path, clip_data, static_center, index, is_hdr, do_upscale,
             font_override,
             sub_width,
             subtitle_animation,
+            subtitle_glow,
         )
         if subtitle_file:
             subtitle_filter = get_subtitle_filter(subtitle_style, subtitle_file)
@@ -4920,6 +4924,7 @@ def render_clip(video_path, clip_data, static_center, index, is_hdr, do_upscale,
         "output_name_template": RUNTIME_HARDWARE.get("output_name_template"),
         "style": subtitle_style,
         "animation": subtitle_animation or "none",
+        "subtitle_glow": bool(subtitle_glow),
         "font": font_override,
         "subtitle_x": sub_pos_x,
         "subtitle_y": sub_pos_y,
@@ -4941,6 +4946,14 @@ def render_clip(video_path, clip_data, static_center, index, is_hdr, do_upscale,
     if subtitle_file and os.path.exists(subtitle_file):
         os.remove(subtitle_file)
 
+KNOWN_SUBTITLE_STYLES = {
+    "classic", "bold", "explosive", "bounce", "pulse", "clean",
+    "gold", "electric", "neon", "cinematic", "shadow", "outline",
+    "gradient", "fire", "wave", "karaoke", "stark", "glitch",
+    "spotlight", "duo", "subtitle", "whip", "marker", "signal",
+    "prism", "halo", "ticker", "poster", "none",
+}
+
 KNOWN_SUBTITLE_ANIMATIONS = {
     "none",
     "popIn",
@@ -4959,6 +4972,11 @@ KNOWN_SUBTITLE_ANIMATIONS = {
 
 def escape_ass_text(text):
     return str(text or "").replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}").replace("\n", " ").strip()
+
+
+def normalize_subtitle_style(style):
+    style = str(style or "classic")
+    return style if style in KNOWN_SUBTITLE_STYLES else "classic"
 
 
 def normalize_subtitle_animation(animation):
@@ -5046,15 +5064,17 @@ def build_ass_animation_tags(animation, word_start_ms, word_end_ms):
     return ""
 
 
-def generate_subtitle_file(words, style, offset_time=0, pos_x=None, pos_y=None, font_size=None, font_override=None, sub_width=None, animation="none"):
+def generate_subtitle_file(words, style, offset_time=0, pos_x=None, pos_y=None, font_size=None, font_override=None, sub_width=None, animation="none", glow=False):
     """Generate ASS subtitle file for all styles (word-by-word animation)"""
+    style = normalize_subtitle_style(style)
     if not words or style == "none":
         return None
-    return generate_ass_subtitles(words, style, offset_time, pos_x, pos_y, font_size, font_override, sub_width, animation)
+    return generate_ass_subtitles(words, style, offset_time, pos_x, pos_y, font_size, font_override, sub_width, animation, glow)
 
 
-def generate_ass_subtitles(words, style, offset_time=0, pos_x=None, pos_y=None, font_size=None, font_override=None, sub_width=None, animation="none"):
+def generate_ass_subtitles(words, style, offset_time=0, pos_x=None, pos_y=None, font_size=None, font_override=None, sub_width=None, animation="none", glow=False):
     """Generate ASS subtitle file with professional animated captions"""
+    style = normalize_subtitle_style(style)
     animation = normalize_subtitle_animation(animation)
     fd, ass_file = tempfile.mkstemp(prefix=f"subtitles_{int(offset_time * 1000)}_", suffix=".ass", dir=TEMP_DIR)
     os.close(fd)
@@ -5185,6 +5205,50 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             "style_line": "Style: Default,Rajdhani Bold,92,&H00FFFFFF,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,5,2,5,40,40,100,1",
             "chunk_size": 3,
         },
+        # Marker: editorial yellow highlighter with a heavy ink edge
+        "marker": {
+            "style_line": "Style: Default,Montserrat Black,96,&H0000F2FF,&H000000FF,&H00171717,&HB0120C0A,-1,0,0,0,100,100,1,0,1,6,2,5,40,40,110,1",
+            "chunk_size": 3,
+        },
+        # Signal: cool newsroom blue with a compact, clean motion cue
+        "signal": {
+            "style_line": "Style: Default,Archivo Black,94,&H00FCFAF8,&H000000FF,&H00E9A50E,&HE01C0C03,-1,0,0,0,100,100,1,0,1,4,2,5,40,40,90,1",
+            "chunk_size": 3,
+        },
+        # Prism: three-color social treatment with a deep indigo edge
+        "prism": {
+            "style_line": "Style: Default,Poppins Black,92,&H00FFFFFF,&H000000FF,&H00812E31,&HB0230A0F,-1,0,0,0,100,100,0,0,1,6,2,5,40,40,100,1",
+            "chunk_size": 3,
+        },
+        # Halo: airy white type with a lilac halo for clips with busy footage
+        "halo": {
+            "style_line": "Style: Default,Poppins Black,94,&H00FFFFFF,&H000000FF,&H00FC84C0,&H40000000,-1,0,0,0,100,100,0,0,1,7,3,5,40,40,110,1",
+            "chunk_size": 2,
+        },
+        # Ticker: a concise lower-third, designed for dense information clips
+        "ticker": {
+            "style_line": "Style: Default,Rajdhani Bold,80,&H00FEF2E0,&H000000FF,&H00170602,&HE0170602,-1,0,0,0,100,100,2,0,3,1,1,2,55,55,55,1",
+            "chunk_size": 4,
+        },
+        # Poster: bold title-card energy, orange panel and two-word cadence
+        "poster": {
+            "style_line": "Style: Default,Anton,112,&H00FFFFFF,&H000000FF,&H00271811,&H201C92FB,-1,0,0,0,105,105,2,0,3,2,2,5,40,40,105,1",
+            "chunk_size": 2,
+        },
+    }
+    # Glow is deliberately opt-in. When enabled, use a style-appropriate
+    # outline color instead of turning every default caption into a halo.
+    glow_outline_colors = {
+        "classic": "&H0000FFFF", "bold": "&H00FFFF00", "explosive": "&H00FFFFFF",
+        "bounce": "&H00FFFFFF", "pulse": "&H0000FFFF", "clean": "&H00E8E8E8",
+        "gold": "&H0000D7FF", "electric": "&H00FFFF00", "neon": "&H0000FFFF",
+        "cinematic": "&H00FFFFFF", "shadow": "&H0000FFFF", "outline": "&H0000CFFF",
+        "gradient": "&H0000CFFF", "fire": "&H000080FF", "wave": "&H00FFFF00",
+        "karaoke": "&H0000FFFF", "stark": "&H00FF69B4", "glitch": "&H00FFFF00",
+        "spotlight": "&H00FFFFFF", "duo": "&H00FF69B4", "subtitle": "&H00E8F4FF",
+        "whip": "&H00FF1493", "marker": "&H0000F2FF", "signal": "&H00F8BD38",
+        "prism": "&H00EED322", "halo": "&H00FCAAF0", "ticker": "&H00F8E867",
+        "poster": "&H201C92FB",
     }
 
     # Allowed font names — limited to the bundled open-source font set for the public repo
@@ -5200,7 +5264,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         "DejaVu Sans", "DejaVu Serif",
     }
 
-    style_config = styles.get(style, styles["classic"])
+    style_config = styles.get(style)
+    if style_config is None:
+        raise ValueError(f"Caption style {style!r} has no ASS definition")
     style_line = style_config["style_line"]
     # Apply font override: replace the font name (2nd CSV field) if specified
     if font_override:
@@ -5258,6 +5324,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         "&H00FF00FF",  # Magenta
         "&H0000FFFF",  # Yellow
     ]
+    prism_colors = [
+        "&H00EED322",  # Cyan
+        "&H00F88C81",  # Indigo
+        "&H00B669F4",  # Pink
+    ]
 
     for i in range(0, len(words), chunk_size):
         chunk = words[i:i+chunk_size]
@@ -5266,13 +5337,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         start_t = max(0, chunk[0]['start'] - offset_time)
         end_t = max(start_t + 0.1, chunk[-1]['end'] - offset_time)
+        # ASS transform times are relative to the start of each Dialogue line,
+        # not to the clip.  Using clip-relative values leaves animated words
+        # transparent after the line has already ended.
+        dialogue_start_ms = max(0, int(start_t * 1000))
 
         word_parts = []
         word_gap = r"\h" if animation == "none" else r"\h\h"
 
         for j, w in enumerate(chunk):
-            word_start = max(0, int((w['start'] - offset_time) * 1000))
-            word_end = max(word_start + 1, int((w['end'] - offset_time) * 1000))
+            word_start_abs = max(0, int((w['start'] - offset_time) * 1000))
+            word_end_abs = max(word_start_abs + 1, int((w['end'] - offset_time) * 1000))
+            word_start = max(0, word_start_abs - dialogue_start_ms)
+            word_end = max(word_start + 1, word_end_abs - dialogue_start_ms)
             word_text = w['word'].strip()
             style_tags = ""
             animation_tags = build_ass_animation_tags(animation, word_start, word_end)
@@ -5445,10 +5522,67 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     f"\\t({word_end},{word_end+100},\\fscx100\\fscy100\\c&H00FFFFFF)"
                 )
 
+            elif style == "marker":
+                # Highlighter stamp: yellow base with a quick white emphasis.
+                word_display = escape_ass_text(word_text.upper())
+                active_color = "&H00FFFFFF" if j % 2 == 0 else "&H0000F2FF"
+                style_tags = (
+                    f"\\t({word_start},{word_start+65},\\fscx122\\fscy122\\c{active_color})"
+                    f"\\t({word_start+65},{word_end},\\fscx106\\fscy106)"
+                    f"\\t({word_end},{word_end+130},\\fscx100\\fscy100\\c&H0000F2FF)"
+                )
+
+            elif style == "signal":
+                # Crisp blue pulse that reads cleanly over fast-moving footage.
+                word_display = escape_ass_text(word_text.upper())
+                active_color = "&H00F8BD38" if j % 2 == 0 else "&H00FA8B67"
+                style_tags = (
+                    f"\\t({word_start},{word_start+85},\\fscx116\\fscy116\\c{active_color})"
+                    f"\\t({word_start+85},{word_end},\\fscx104\\fscy104)"
+                    f"\\t({word_end},{word_end+140},\\fscx100\\fscy100\\c&H00FCFAF8)"
+                )
+
+            elif style == "prism":
+                # Rotating cool-to-pink palette with a gentle kinetic pop.
+                color = prism_colors[j % len(prism_colors)]
+                style_tags = (
+                    f"\\t({word_start},{word_start+80},\\fscx116\\fscy116\\c{color})"
+                    f"\\t({word_start+80},{word_end},\\fscx105\\fscy105)"
+                    f"\\t({word_end},{word_end+160},\\fscx100\\fscy100\\c&H00FFFFFF)"
+                )
+
+            elif style == "halo":
+                # Lilac bloom, restrained enough for interview and podcast shorts.
+                active_color = "&H00FCAAF0" if j % 2 == 0 else "&H00FC84C0"
+                style_tags = (
+                    f"\\t({word_start},{word_start+100},\\fscx118\\fscy118\\c{active_color})"
+                    f"\\t({word_start+100},{word_end},\\fscx105\\fscy105)"
+                    f"\\t({word_end},{word_end+180},\\fscx100\\fscy100\\c&H00FFFFFF)"
+                )
+
+            elif style == "ticker":
+                # A lower-third scan: all caps, cyan active word, nearly no scale.
+                word_display = escape_ass_text(word_text.upper())
+                style_tags = (
+                    f"\\t({word_start},{word_end},\\c&H00F8E867\\fscx104\\fscy104)"
+                    f"\\t({word_end},{word_end+120},\\c&H00FEF2E0\\fscx100\\fscy100)"
+                )
+
+            elif style == "poster":
+                # Compact title-card slam with a dark active word.
+                word_display = escape_ass_text(word_text.upper())
+                active_color = "&H00271811" if j % 2 == 0 else "&H00FFFFFF"
+                style_tags = (
+                    f"\\t({word_start},{word_start+70},\\fscx128\\fscy128\\c{active_color})"
+                    f"\\t({word_start+70},{word_end},\\fscx108\\fscy108)"
+                    f"\\t({word_end},{word_end+140},\\fscx100\\fscy100\\c&H00FFFFFF)"
+                )
+
             else:
                 style_tags = ""
 
-            word_parts.append(f"{{{style_tags}{animation_tags}}}{word_display}")
+            glow_tags = f"\\3c{glow_outline_colors.get(style, '&H00FFFFFF')}\\blur2\\bord4\\shad0" if glow else ""
+            word_parts.append(f"{{{glow_tags}{style_tags}{animation_tags}}}{word_display}")
 
         animated_text = word_gap.join(word_parts)
 
@@ -5551,11 +5685,7 @@ def main():
     parser.add_argument("--mode", choices=["shorts", "shorts-analyze", "shorts-more", "longform", "rerender", "longform-edit"], default="shorts")
     parser.add_argument("--upscale", action="store_true", help="Upscale to 8K")
     parser.add_argument("--subtitle-style",
-                       choices=["classic", "bold", "explosive", "bounce", "pulse", "clean",
-                                "gold", "electric", "neon", "cinematic",
-                                "shadow", "outline", "gradient", "fire", "wave",
-                                "karaoke", "stark", "glitch",
-                                "spotlight", "duo", "subtitle", "whip", "none"],
+                       choices=sorted(KNOWN_SUBTITLE_STYLES),
                        default="classic",
                        help="Caption style")
     parser.add_argument("--font", default=None,
@@ -5661,8 +5791,9 @@ def main():
             "words": meta.get("words", []),
             "text": " ".join(w["word"] for w in meta.get("words", []))
         }
-        subtitle_style = meta.get("style", "classic")
+        subtitle_style = normalize_subtitle_style(meta.get("style", "classic"))
         subtitle_animation = normalize_subtitle_animation(meta.get("animation", "none"))
+        subtitle_glow = meta.get("subtitle_glow", False) is True
         static_center = meta.get("frame_layout", meta.get("static_center", 960))
         source = meta["source"]
         sub_pos_x = meta.get("subtitle_x", None)
@@ -5681,8 +5812,8 @@ def main():
         output_path = args.rerender_output or os.path.join(OUTPUT_DIR, "rerendered.mp4")
         is_hdr, src_w, src_h = detect_hdr_and_res(source)
 
-        print(f"🔄 Re-rendering with subtitles [{subtitle_style}] animation=[{subtitle_animation}] font=[{font_override or 'default'}]...")
-        render_clip(source, clip_data, static_center, 0, is_hdr, False, subtitle_style, subtitle_animation, output_path=output_path,
+        print(f"🔄 Re-rendering with subtitles [{subtitle_style}] animation=[{subtitle_animation}] glow=[{'on' if subtitle_glow else 'off'}] font=[{font_override or 'default'}]...")
+        render_clip(source, clip_data, static_center, 0, is_hdr, False, subtitle_style, subtitle_animation, subtitle_glow, output_path=output_path,
                     sub_pos_x=sub_pos_x, sub_pos_y=sub_pos_y, sub_font_size=sub_font_size,
                     bake_subtitles=True, font_override=font_override, sub_width=sub_width,
                     video_zoom=video_zoom, video_pan_x=video_pan_x, video_pan_y=video_pan_y)

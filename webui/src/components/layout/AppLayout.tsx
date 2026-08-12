@@ -2,7 +2,10 @@ import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { clsx } from 'clsx';
 import { Flame, LayoutDashboard, Film, ListChecks, Activity, Settings, Clapperboard } from 'lucide-react';
 import { useActiveJob } from '@/hooks/queries';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { Toaster } from '@/components/ui';
+import { toast } from '@/store/toasts';
+import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts';
 
 const NAV = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, mobileLabel: null },
@@ -17,15 +20,32 @@ export function AppLayout() {
   const location = useLocation();
   const { data: job } = useActiveJob();
   const isLongformEditor = location.pathname.startsWith('/longform-editor/');
-
-  // Close the editor by stripping the route when on editor and pressing Escape is awkward
-  // — we just rely on the back button inside the editor page.
+  const shortcutsHelp = useGlobalShortcuts();
 
   // Title reflects current page
   useEffect(() => {
     const title = `Viral Clip Factory${location.pathname === '/dashboard' ? '' : ' — ' + (NAV.find(n => location.pathname.startsWith(n.to))?.label ?? '')}`;
     document.title = title;
   }, [location.pathname]);
+
+  // Toast when a running job finishes. The previous-active ref suppresses
+  // notifications on first mount, and the notified-job ref prevents repeats
+  // while the finished status keeps polling in.
+  const prevActiveRef = useRef<boolean | null>(null);
+  const notifiedJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    const wasActive = prevActiveRef.current;
+    prevActiveRef.current = job ? job.active : null;
+    if (wasActive !== true || !job || job.active || !job.jobId) return;
+    if (notifiedJobRef.current === job.jobId) return;
+    notifiedJobRef.current = job.jobId;
+    const label = job.label || 'Job';
+    if (job.exitCode === 0 && !job.error) {
+      toast('success', `${label} finished`, 'Open the Library to see the results.');
+    } else {
+      toast('error', `${label} failed`, job.error || `Exit code ${job.exitCode ?? 'unknown'}`);
+    }
+  }, [job]);
 
   return (
     <div className="flex min-h-[100dvh] w-full min-w-0 bg-app-bg text-slate-100">
@@ -65,7 +85,7 @@ export function AppLayout() {
         <div className="border-t border-white/5 p-3 text-[11px] text-slate-500">
           <div className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            <span>Server: localhost:3000</span>
+            <span>Server: {window.location.host}</span>
           </div>
         </div>
       </aside>
@@ -86,7 +106,7 @@ export function AppLayout() {
               to={to}
               className={({ isActive }) => clsx(
                 mobileLabel
-                  ? 'flex h-11 w-14 flex-col items-center justify-center gap-0.5 rounded-md text-[8px] font-bold leading-none'
+                  ? 'flex h-11 w-14 flex-col items-center justify-center gap-0.5 rounded-md text-[10px] font-bold leading-none'
                   : 'grid h-11 w-10 place-items-center rounded-md',
                 isActive
                   ? mobileLabel ? 'bg-fuchsia-500/20 text-fuchsia-100 ring-1 ring-fuchsia-400/35' : 'bg-white/10 text-white'
@@ -105,6 +125,8 @@ export function AppLayout() {
       <main className={clsx('min-w-0 max-w-full flex-1', isLongformEditor ? 'pt-0' : 'pt-12 md:pt-0')}>
         <Outlet />
       </main>
+      <Toaster />
+      {shortcutsHelp}
     </div>
   );
 }

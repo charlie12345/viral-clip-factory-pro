@@ -2,10 +2,12 @@
 // Source of truth is the Python pipeline (viral_factory.py + ASS generator);
 // these objects are used by the in-browser preview only.
 
+export type CaptionStyleGroup = 'Animated Highlight' | 'High Impact' | 'Studio Social' | 'Clean & Cinematic';
+
 export interface OverlayStyle {
   id: string;
   label: string;
-  group: 'Animated Highlight' | 'High Impact' | 'Clean & Cinematic';
+  group: CaptionStyleGroup;
   font: string;          // CSS font shorthand, uses `1em` as a font-size placeholder
   color: string;
   outline: string;       // hex / 'none'
@@ -17,6 +19,7 @@ export interface OverlayStyle {
   ls?: string;
   ts?: string;           // text-shadow when outline === 'none' and op === 0
   defaultPos?: [number, number]; // [x, y] fraction (0..1)
+  previewMotion?: 'stamp' | 'signal' | 'prism' | 'halo' | 'ticker' | 'poster';
 }
 
 export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
@@ -37,6 +40,13 @@ export const OVERLAY_STYLES: Record<string, OverlayStyle> = {
   glitch:    { id:'glitch',    label:'Glitch',     group:'High Impact',        font:'900 1em "Oswald Bold","Arial Narrow",sans-serif',      color:'#fff', outline:'none', op:0, bg:'rgba(0,0,0,.9)',  hi:['#f00','#0ff'], chunks:3, upper:true, defaultPos:[0.5,0.80] },
   spotlight: { id:'spotlight', label:'Spotlight',  group:'High Impact',        font:'900 1em "Bebas Neue","Impact",sans-serif',             color:'#fff', outline:'#000', op:1, bg:'rgba(0,0,0,.88)', hi:['#fff'], chunks:1, upper:true, defaultPos:[0.5,0.50] },
   duo:       { id:'duo',       label:'Duo',        group:'High Impact',        font:'900 1em "Archivo Black","Arial Black",sans-serif',     color:'#fff', outline:'#000', op:1, bg:'rgba(0,0,0,.88)', hi:['#ff69b4'], chunks:2, defaultPos:[0.5,0.80] },
+
+  marker:    { id:'marker',    label:'Marker',     group:'Studio Social',      font:'900 1em "Montserrat Black","Arial Black",sans-serif', color:'#fff200', outline:'#171717', op:2, bg:'rgba(10,12,18,.74)', hi:['#fff','#fff200'], chunks:3, upper:true, defaultPos:[0.5,0.76], previewMotion:'stamp' },
+  signal:    { id:'signal',    label:'Signal',     group:'Studio Social',      font:'900 1em "Archivo Black","Arial Black",sans-serif',     color:'#f8fafc', outline:'#0ea5e9', op:1, bg:'rgba(3,12,28,.88)', hi:['#38bdf8','#a78bfa'], chunks:3, upper:true, defaultPos:[0.5,0.80], previewMotion:'signal' },
+  prism:     { id:'prism',     label:'Prism',      group:'Studio Social',      font:'900 1em "Poppins Black","Arial Black",sans-serif',     color:'#fff', outline:'#312e81', op:2, bg:'rgba(15,10,35,.72)', hi:['#22d3ee','#818cf8','#f472b6'], chunks:3, defaultPos:[0.5,0.78], previewMotion:'prism' },
+  halo:      { id:'halo',      label:'Halo',       group:'Studio Social',      font:'900 1em "Poppins Black","Arial Black",sans-serif',     color:'#fff', outline:'#c084fc', op:2, bg:'none', hi:['#f0abfc','#c084fc'], chunks:2, defaultPos:[0.5,0.76], previewMotion:'halo' },
+  ticker:    { id:'ticker',    label:'Ticker',     group:'Studio Social',      font:'700 1em "Rajdhani Bold","Arial Narrow",sans-serif',     color:'#e0f2fe', outline:'#020617', op:1, bg:'rgba(2,6,23,.9)', hi:['#67e8f9','#fff'], chunks:4, upper:true, ls:'1px', defaultPos:[0.5,0.88], previewMotion:'ticker' },
+  poster:    { id:'poster',    label:'Poster',     group:'Studio Social',      font:'900 1em "Anton","Arial Narrow",sans-serif',            color:'#fff', outline:'#111827', op:2, bg:'rgba(251,146,60,.88)', hi:['#111827','#fff'], chunks:2, upper:true, defaultPos:[0.5,0.72], previewMotion:'poster' },
 
   clean:     { id:'clean',     label:'Clean',      group:'Clean & Cinematic',  font:'700 1em "Montserrat Bold","Arial",sans-serif',         color:'#f5f5f5', outline:'#333', op:1, bg:'rgba(0,0,0,.35)', hi:['#e8e8e8'], chunks:4, defaultPos:[0.5,0.12] },
   cinematic: { id:'cinematic', label:'Cinematic',  group:'Clean & Cinematic',  font:'700 1em "Montserrat Bold","Arial",sans-serif',         color:'#fff', outline:'none', op:0, bg:'rgba(0,0,0,.88)', hi:['#fff'], chunks:5, ls:'1px', defaultPos:[0.5,0.88] },
@@ -65,6 +75,13 @@ export const STYLE_LIST: Array<{ id: string; label: string; group: OverlayStyle[
   { id:'glitch',    label:'Glitch',    group:'High Impact' },
   { id:'spotlight', label:'Spotlight', group:'High Impact' },
   { id:'duo',       label:'Duo',       group:'High Impact' },
+  { sep: 'Studio Social' },
+  { id:'marker',    label:'Marker',    group:'Studio Social' },
+  { id:'signal',    label:'Signal',    group:'Studio Social' },
+  { id:'prism',     label:'Prism',     group:'Studio Social' },
+  { id:'halo',      label:'Halo',      group:'Studio Social' },
+  { id:'ticker',    label:'Ticker',    group:'Studio Social' },
+  { id:'poster',    label:'Poster',    group:'Studio Social' },
   { sep: 'Clean & Cinematic' },
   { id:'clean',     label:'Clean',     group:'Clean & Cinematic' },
   { id:'cinematic', label:'Cinematic', group:'Clean & Cinematic' },

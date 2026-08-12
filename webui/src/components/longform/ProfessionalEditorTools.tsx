@@ -659,7 +659,7 @@ function EditAndMotionTools({
             <button className="btn-secondary h-9 px-2 text-[10px]" disabled={!nearestCut} onClick={() => onRipple('end', -1 / 30)}>Ripple end −1f</button>
           </div>
           {nearestCut && (
-            <div className="mt-2 rounded-lg bg-black/20 px-3 py-2 font-mono text-[9px] text-slate-500">
+            <div className="mt-2 rounded-lg bg-black/20 px-3 py-2 font-mono text-[10px] text-slate-500">
               Nearest removal: {nearestCut.start.toFixed(3)}s–{nearestCut.end.toFixed(3)}s
             </div>
           )}
@@ -735,9 +735,9 @@ function EditAndMotionTools({
               <div className="mt-2 max-h-48 space-y-1.5 overflow-y-auto scrollbar-thin">
                 {selectedBroll.keyframes.map((keyframe) => (
                   <div key={keyframe.id} className="grid grid-cols-[75px_repeat(4,minmax(0,1fr))_auto] gap-1 rounded-lg bg-black/20 p-1.5">
-                    <input className="input h-8 px-1 font-mono text-[9px]" type="number" min={selectedBroll.start} max={selectedBroll.end} step={1 / 30} value={keyframe.time} onChange={(event) => onPatchBroll(selectedBroll.id, { keyframes: selectedBroll.keyframes.map((item) => item.id === keyframe.id ? { ...item, time: Number(event.target.value) } : item) })} aria-label="Keyframe time" />
+                    <input className="input h-8 px-1 font-mono text-[10px]" type="number" min={selectedBroll.start} max={selectedBroll.end} step={1 / 30} value={keyframe.time} onChange={(event) => onPatchBroll(selectedBroll.id, { keyframes: selectedBroll.keyframes.map((item) => item.id === keyframe.id ? { ...item, time: Number(event.target.value) } : item) })} aria-label="Keyframe time" />
                     {(['x', 'y', 'scale', 'rotation'] as const).map((field) => (
-                      <input key={field} className="input h-8 px-1 font-mono text-[9px]" type="number" step={field === 'rotation' ? 1 : 0.01} value={keyframe[field]} onChange={(event) => onPatchBroll(selectedBroll.id, { keyframes: selectedBroll.keyframes.map((item) => item.id === keyframe.id ? { ...item, [field]: Number(event.target.value) } : item) })} aria-label={`Keyframe ${field}`} />
+                      <input key={field} className="input h-8 px-1 font-mono text-[10px]" type="number" step={field === 'rotation' ? 1 : 0.01} value={keyframe[field]} onChange={(event) => onPatchBroll(selectedBroll.id, { keyframes: selectedBroll.keyframes.map((item) => item.id === keyframe.id ? { ...item, [field]: Number(event.target.value) } : item) })} aria-label={`Keyframe ${field}`} />
                     ))}
                     <button className="grid h-8 w-8 place-items-center text-slate-600 hover:text-red-300" onClick={() => onPatchBroll(selectedBroll.id, { keyframes: selectedBroll.keyframes.filter((item) => item.id !== keyframe.id) })} aria-label="Delete keyframe"><Trash2 className="h-3 w-3" /></button>
                   </div>
@@ -814,7 +814,7 @@ function AudioMixerTools({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="text-[11px] font-semibold text-slate-300">Volume automation</div>
-              <div className="text-[9px] text-slate-600">Interpolated gain keyframes render against the edited timeline.</div>
+              <div className="text-[10px] text-slate-600">Interpolated gain keyframes render against the edited timeline.</div>
             </div>
             <button className="btn-secondary h-8 px-2 text-[10px]" onClick={addAutomation}><Plus className="h-3 w-3" /> Keyframe at {formatTime(playhead)}</button>
           </div>
@@ -990,7 +990,7 @@ function ColorAndEffectsTools({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="text-xs font-semibold text-slate-200">LUT and white balance</div>
-              <div className="text-[9px] text-slate-600">.cube LUTs render before manual finishing controls.</div>
+              <div className="text-[10px] text-slate-600">.cube LUTs render before manual finishing controls.</div>
             </div>
             <label className="btn-secondary h-8 cursor-pointer px-2 text-[10px]">
               {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />} Upload LUT
@@ -1020,8 +1020,8 @@ function ColorAndEffectsTools({
             <div key={layer.id} className="rounded-xl border border-white/5 bg-black/20 p-3">
               <div className="grid grid-cols-[minmax(0,1fr)_80px_80px_auto] gap-2">
                 <input className="input h-8 text-xs" value={layer.name} onChange={(event) => patchLayer(layer.id, { name: event.target.value })} />
-                <input className="input h-8 px-1 font-mono text-[9px]" type="number" min={min} max={layer.end - 0.05} step={0.1} value={layer.start} onChange={(event) => patchLayer(layer.id, { start: Number(event.target.value) })} />
-                <input className="input h-8 px-1 font-mono text-[9px]" type="number" min={layer.start + 0.05} max={max} step={0.1} value={layer.end} onChange={(event) => patchLayer(layer.id, { end: Number(event.target.value) })} />
+                <input className="input h-8 px-1 font-mono text-[10px]" type="number" min={min} max={layer.end - 0.05} step={0.1} value={layer.start} onChange={(event) => patchLayer(layer.id, { start: Number(event.target.value) })} />
+                <input className="input h-8 px-1 font-mono text-[10px]" type="number" min={layer.start + 0.05} max={max} step={0.1} value={layer.end} onChange={(event) => patchLayer(layer.id, { end: Number(event.target.value) })} />
                 <div className="flex">
                   <button className="grid h-8 w-8 place-items-center text-slate-500 hover:text-white" onClick={() => onSeek(layer.start)}><Film className="h-3 w-3" /></button>
                   <button className="grid h-8 w-8 place-items-center text-slate-600 hover:text-red-300" onClick={() => onCreativeChange({ adjustmentLayers: creative.adjustmentLayers.filter((item) => item.id !== layer.id) })}><Trash2 className="h-3 w-3" /></button>
@@ -1125,10 +1125,10 @@ function MulticamTools({
                   </select>
                 </label>
               </div>
-              <div className="mt-2 flex items-center justify-between text-[9px] text-slate-600">
+              <div className="mt-2 flex items-center justify-between text-[10px] text-slate-600">
                 <span className="truncate">{angleAssets.get(angle.assetId)?.name || angle.assetId}</span>
                 <div className="flex gap-1">
-                  <button className="btn-secondary h-7 px-2 text-[9px]" onClick={() => addCut(angle.id)}>Cut at playhead</button>
+                  <button className="btn-secondary h-7 px-2 text-[10px]" onClick={() => addCut(angle.id)}>Cut at playhead</button>
                   <button className="grid h-7 w-7 place-items-center hover:text-red-300" onClick={() => onCreativeChange({ multicam: { angles: creative.multicam.angles.filter((item) => item.id !== angle.id), cuts: creative.multicam.cuts.filter((cut) => cut.angleId !== angle.id) } })}><Trash2 className="h-3 w-3" /></button>
                 </div>
               </div>
@@ -1258,9 +1258,9 @@ function ProjectSafetyTools({
               <div key={snapshot.id} className="flex items-center gap-2 rounded-lg bg-black/20 px-3 py-2">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[11px] font-semibold text-slate-300">{snapshot.name}</div>
-                  <div className="text-[9px] text-slate-600">Revision {snapshot.revision} · {new Date(snapshot.createdAt).toLocaleString()}</div>
+                  <div className="text-[10px] text-slate-600">Revision {snapshot.revision} · {new Date(snapshot.createdAt).toLocaleString()}</div>
                 </div>
-                <button className="btn-secondary h-7 px-2 text-[9px]" disabled={busy} onClick={() => onRestoreSnapshot(snapshot.id)}>Restore</button>
+                <button className="btn-secondary h-7 px-2 text-[10px]" disabled={busy} onClick={() => onRestoreSnapshot(snapshot.id)}>Restore</button>
               </div>
             ))}
             {!snapshots.length && <EmptyNote>Autosave snapshots are retained periodically; create named checkpoints before major edits.</EmptyNote>}
@@ -1289,9 +1289,9 @@ function ProjectSafetyTools({
               <div key={preset.id} className="flex items-center gap-2 rounded-lg bg-black/20 px-3 py-2">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[11px] font-semibold text-slate-300">{preset.name}</div>
-                  <div className="text-[9px] text-slate-600">{new Date(preset.createdAt).toLocaleDateString()}</div>
+                  <div className="text-[10px] text-slate-600">{new Date(preset.createdAt).toLocaleDateString()}</div>
                 </div>
-                <button className="btn-secondary h-7 px-2 text-[9px]" onClick={() => onApplyPreset(preset.creative)}>Apply</button>
+                <button className="btn-secondary h-7 px-2 text-[10px]" onClick={() => onApplyPreset(preset.creative)}>Apply</button>
                 <button className="grid h-7 w-7 place-items-center text-slate-600 hover:text-red-300" onClick={() => onDeletePreset(preset.id)}><Trash2 className="h-3 w-3" /></button>
               </div>
             ))}
@@ -1313,9 +1313,9 @@ function ProjectSafetyTools({
                 <div className="flex items-center gap-2">
                   <span className={clsx('h-2 w-2 rounded-full', job.status === 'complete' ? 'bg-emerald-400' : job.status === 'failed' ? 'bg-red-400' : job.status === 'rendering' ? 'animate-pulse bg-pink-400' : 'bg-amber-300')} />
                   <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-300">{job.outputName}</span>
-                  <span className="text-[9px] font-semibold uppercase text-slate-500">{job.status}</span>
+                  <span className="text-[10px] font-semibold uppercase text-slate-500">{job.status}</span>
                 </div>
-                {job.error && <div className="mt-1 text-[9px] text-red-300">{job.error}</div>}
+                {job.error && <div className="mt-1 text-[10px] text-red-300">{job.error}</div>}
               </div>
             ))}
             {!projectQueue.length && <EmptyNote>Queued and recent exports for this project will appear here.</EmptyNote>}
@@ -1360,8 +1360,8 @@ function AssistantTools({
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-semibold text-slate-200">{suggestion.title}</span>
-                  <span className="rounded bg-white/5 px-1.5 py-0.5 text-[8px] font-semibold uppercase text-slate-500">{suggestion.kind}</span>
-                  <span className="text-[9px] text-slate-600">{Math.round(suggestion.confidence * 100)}%</span>
+                  <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-500">{suggestion.kind}</span>
+                  <span className="text-[10px] text-slate-600">{Math.round(suggestion.confidence * 100)}%</span>
                 </div>
                 <p className="mt-1 text-[10px] leading-relaxed text-slate-500">{suggestion.detail}</p>
               </div>
@@ -1436,17 +1436,17 @@ function VideoScopes({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <div className="text-xs font-semibold text-slate-200">Video scopes and shot matching</div>
-          <div className="mt-1 text-[9px] text-slate-600">Live sampled from the current source or proxy frame.</div>
+          <div className="mt-1 text-[10px] text-slate-600">Live sampled from the current source or proxy frame.</div>
         </div>
         <div className="flex gap-1">
           {(['histogram', 'parade', 'vectorscope'] as const).map((item) => (
-            <button key={item} className={clsx('rounded px-2 py-1 text-[9px] capitalize', mode === item ? 'bg-white/10 text-white' : 'text-slate-600 hover:text-slate-300')} onClick={() => setMode(item)}>{item}</button>
+            <button key={item} className={clsx('rounded px-2 py-1 text-[10px] capitalize', mode === item ? 'bg-white/10 text-white' : 'text-slate-600 hover:text-slate-300')} onClick={() => setMode(item)}>{item}</button>
           ))}
         </div>
       </div>
       <div className="mt-3 grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)]">
         <div>
-          <div className="mb-1 text-[8px] font-semibold uppercase tracking-wider text-slate-600">WB picker</div>
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">WB picker</div>
           <canvas
             ref={pickerCanvasRef}
             width={192}
@@ -1467,7 +1467,7 @@ function VideoScopes({
               });
             }}
           />
-          <div className="mt-1 text-[8px] leading-relaxed text-slate-600">Click a neutral pixel.</div>
+          <div className="mt-1 text-[10px] leading-relaxed text-slate-600">Click a neutral pixel.</div>
         </div>
         <canvas ref={canvasRef} width={720} height={220} className="h-48 w-full rounded-lg bg-black ring-1 ring-inset ring-white/10" />
       </div>
@@ -1672,7 +1672,7 @@ function Toggle({ label, detail, checked, onChange, compact = false }: {
     <label className={clsx('flex cursor-pointer items-center justify-between gap-3 rounded-lg bg-white/[0.025] ring-1 ring-inset ring-white/5', compact ? 'h-9 px-2' : 'p-3')}>
       <span className="min-w-0">
         <span className="block text-[10px] font-semibold text-slate-300">{label}</span>
-        {detail && <span className="mt-0.5 block text-[9px] text-slate-600">{detail}</span>}
+        {detail && <span className="mt-0.5 block text-[10px] text-slate-600">{detail}</span>}
       </span>
       <input className="h-4 w-4 shrink-0 accent-emerald-500" type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
     </label>
@@ -1685,7 +1685,7 @@ function ColorInput({ label, value, onChange }: { label: string; value: string; 
       <span className="label">{label}</span>
       <span className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-black/30 px-2">
         <input className="h-5 w-7 cursor-pointer border-0 bg-transparent p-0" type="color" value={value} onChange={(event) => onChange(event.target.value.toUpperCase())} />
-        <span className="truncate font-mono text-[9px] text-slate-500">{value}</span>
+        <span className="truncate font-mono text-[10px] text-slate-500">{value}</span>
       </span>
     </label>
   );

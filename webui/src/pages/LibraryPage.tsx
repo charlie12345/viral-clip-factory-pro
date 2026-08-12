@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Filter, SortDesc, Trash2, Download, RefreshCcw, PencilRuler,
@@ -9,6 +9,8 @@ import {
 import { clsx } from 'clsx';
 import { api, type ClipSummary } from '@/api/client';
 import { useClips } from '@/hooks/queries';
+import { Button, ConfirmDialog, EmptyState as UIEmptyState, Panel, Skeleton, Slider } from '@/components/ui';
+import { toast } from '@/store/toasts';
 
 type SortKey = 'score-desc' | 'score-asc' | 'name-asc' | 'name-desc';
 
@@ -23,6 +25,18 @@ export function LibraryPage() {
   const [minScore, setMinScore] = useState<number>(0);
   const [showFilters, setShowFilters] = useState(false);
   const [generateMessage, setGenerateMessage] = useState<string | null>(null);
+  const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+
+  async function deleteClip(name: string) {
+    try {
+      await api.deleteClip(name);
+      qc.invalidateQueries({ queryKey: ['clips'] });
+      toast('success', `Deleted ${name}`);
+    } catch (error) {
+      toast('error', 'Delete failed', error instanceof Error ? error.message : undefined);
+    }
+  }
 
   // Toggle selection
   function toggle(name: string) {
@@ -59,15 +73,23 @@ export function LibraryPage() {
   // Bulk actions
   const batchDelete = useMutation({
     mutationFn: (names: string[]) => api.batchDelete(names),
-    onSuccess: () => {
+    onSuccess: (_result, names) => {
       clearSelection();
       qc.invalidateQueries({ queryKey: ['clips'] });
+      toast('success', `Deleted ${names.length} clip${names.length === 1 ? '' : 's'}`);
+    },
+    onError: (error) => {
+      toast('error', 'Batch delete failed', (error as Error).message);
     },
   });
   const batchReRender = useMutation({
     mutationFn: (clipNames: string[]) => api.batchReRender({ clipNames }),
-    onSuccess: () => {
+    onSuccess: (_result, clipNames) => {
       qc.invalidateQueries({ queryKey: ['job-status'] });
+      toast('success', `Re-render queued for ${clipNames.length} clip${clipNames.length === 1 ? '' : 's'}`, 'Track progress on the Jobs page.');
+    },
+    onError: (error) => {
+      toast('error', 'Re-render could not be queued', (error as Error).message);
     },
   });
   const generateMore = useMutation({
@@ -76,6 +98,10 @@ export function LibraryPage() {
       setGenerateMessage(`${result.requested} additional Shorts queued from the saved analysis.`);
       qc.invalidateQueries({ queryKey: ['job-status'] });
       qc.invalidateQueries({ queryKey: ['jobs'] });
+      toast('success', `${result.requested} additional Shorts queued`, 'Track progress on the Jobs page.');
+    },
+    onError: (error) => {
+      toast('error', 'Generate More could not be queued', (error as Error).message);
     },
   });
 
@@ -94,10 +120,10 @@ export function LibraryPage() {
           <p className="mt-1 text-sm text-slate-400">{clips.length} exports · shorts and long-form masters</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <button className="btn-ghost" onClick={() => refetch()}>
+          <Button variant="ghost" onClick={() => refetch()}>
             <RefreshCcw className={clsx('h-4 w-4', isFetching && 'animate-spin')} />
             <span className="hidden sm:inline">Refresh</span>
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -115,7 +141,7 @@ export function LibraryPage() {
       )}
 
       {/* Toolbar */}
-      <div className="panel p-3 sm:p-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+      <Panel className="p-3 sm:p-4 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1 min-w-0">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
           <input
@@ -127,39 +153,36 @@ export function LibraryPage() {
           />
         </div>
         <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-start">
-          <button
-            className="btn-secondary"
+          <Button
+            variant="secondary"
             onClick={() => setShowFilters((s) => !s)}
           >
             <Filter className="h-4 w-4" />
             Filters
             <ChevronDown className={clsx('h-3 w-3 transition', showFilters && 'rotate-180')} />
-          </button>
+          </Button>
           <SortMenu sort={sort} onChange={setSort} />
         </div>
-      </div>
+      </Panel>
 
       {/* Filter row */}
       {showFilters && (
-        <div className="panel p-4 grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fade-in">
-          <div>
-            <div className="label">Minimum Score: {minScore.toFixed(1)}</div>
-            <input
-              type="range"
-              min="0"
-              max="20"
-              step="0.5"
-              value={minScore}
-              onChange={(e) => setMinScore(parseFloat(e.target.value))}
-              className="w-full accent-pink-500"
-            />
-          </div>
-        </div>
+        <Panel className="p-4 grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fade-in">
+          <Slider
+            label="Minimum Score"
+            min={0}
+            max={20}
+            step={0.5}
+            value={minScore}
+            formatValue={(v) => v.toFixed(1)}
+            onChange={setMinScore}
+          />
+        </Panel>
       )}
 
       {/* Selection bar */}
       {selected.size > 0 && (
-        <div className="panel-elev p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-slide-up">
+        <Panel elevated className="p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-slide-up">
           <div className="flex items-center gap-3">
             <span className="grid h-8 w-8 place-items-center rounded-md bg-gradient-to-br from-accent-pink to-brand-500 text-xs font-black text-white">
               {selected.size}
@@ -170,44 +193,56 @@ export function LibraryPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              className="btn-ghost text-xs"
+            <Button
+              variant="ghost"
+              className="text-xs"
               onClick={() => selectAll(filtered)}
-            >Select all visible</button>
-            <button className="btn-ghost text-xs" onClick={clearSelection}>Clear</button>
+            >Select all visible</Button>
+            <Button variant="ghost" className="text-xs" onClick={clearSelection}>Clear</Button>
             <a
               className="btn-secondary text-xs"
               href={`/api/clips/batch-download?names=${encodeURIComponent(Array.from(selected).join(','))}`}
             >
               <Download className="h-3.5 w-3.5" /> Download ZIP
             </a>
-            <button
-              className="btn-secondary text-xs"
+            <Button
+              variant="secondary"
+              className="text-xs"
               disabled={batchReRender.isPending}
               onClick={() => batchReRender.mutate(Array.from(selected))}
             >
               {batchReRender.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
               Re-render All
-            </button>
-            <button
-              className="btn-danger text-xs"
+            </Button>
+            <Button
+              variant="danger"
+              className="text-xs"
               disabled={batchDelete.isPending}
-              onClick={() => {
-                if (confirm(`Delete ${selected.size} clips? This cannot be undone.`)) {
-                  batchDelete.mutate(Array.from(selected));
-                }
-              }}
+              onClick={() => setConfirmBatchDelete(true)}
             >
               <Trash2 className="h-3.5 w-3.5" /> Delete
-            </button>
+            </Button>
           </div>
-        </div>
+        </Panel>
       )}
 
       {/* Grid */}
       {isLoading ? (
-        <div className="grid place-items-center py-16 text-slate-500">
-          <Loader2 className="h-6 w-6 animate-spin" />
+        <div
+          role="status"
+          aria-label="Loading clips"
+          className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
+        >
+          {Array.from({ length: 10 }, (_, i) => (
+            <div key={i} className="overflow-hidden rounded-2xl border border-white/5 bg-bg-elev/80">
+              <Skeleton className="aspect-[9/16] rounded-none" />
+              <div className="space-y-2 p-3">
+                <Skeleton className="h-2.5 w-2/3" />
+                <Skeleton className="h-2 w-1/2" />
+                <Skeleton className="h-7 rounded-md" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : filtered.length === 0 ? (
         <EmptyState hasClips={clips.length > 0} />
@@ -223,39 +258,120 @@ export function LibraryPage() {
               onEdit={() => openEditor(clip.name)}
               onGenerateMore={() => generateMore.mutate(clip.name)}
               generatePending={generateMore.isPending}
-              onDelete={async () => {
-                if (confirm('Delete this clip?')) {
-                  await api.deleteClip(clip.name);
-                  qc.invalidateQueries({ queryKey: ['clips'] });
-                }
-              }}
+              onDelete={() => setPendingDelete(clip.name)}
               active={clipName === clip.name}
             />
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmBatchDelete}
+        title={`Delete ${selected.size} clip${selected.size === 1 ? '' : 's'}?`}
+        body="This cannot be undone. The rendered files are removed from the library."
+        confirmLabel="Delete"
+        danger
+        confirmDisabled={batchDelete.isPending}
+        onCancel={() => setConfirmBatchDelete(false)}
+        onConfirm={() => {
+          batchDelete.mutate(Array.from(selected));
+          setConfirmBatchDelete(false);
+        }}
+      />
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete this clip?"
+        body={pendingDelete ? `${pendingDelete} will be removed from the library. This cannot be undone.` : undefined}
+        confirmLabel="Delete"
+        danger
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          const name = pendingDelete;
+          setPendingDelete(null);
+          if (name) void deleteClip(name);
+        }}
+      />
     </div>
   );
 }
 
+const SORT_OPTIONS = [
+  ['score-desc', 'Highest score first'],
+  ['score-asc',  'Lowest score first'],
+  ['name-asc',   'Name (A→Z)'],
+  ['name-desc',  'Name (Z→A)'],
+] as const;
+
+/**
+ * Sort dropdown. Opens on hover for pointer users (unchanged) and on
+ * click/Enter/Space/ArrowDown for keyboard users, with Escape and outside
+ * clicks closing it.
+ */
 function SortMenu({ sort, onChange }: { sort: SortKey; onChange: (k: SortKey) => void }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handlePointerDown(event: MouseEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [open]);
+
+  function close(restoreFocus = true) {
+    setOpen(false);
+    if (restoreFocus) triggerRef.current?.focus();
+  }
+
   return (
-    <div className="relative group">
-      <button className="btn-secondary">
+    <div
+      ref={containerRef}
+      className="group relative"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && open) {
+          e.stopPropagation();
+          close();
+        }
+      }}
+    >
+      <Button
+        ref={triggerRef}
+        variant="secondary"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setOpen(true);
+            window.setTimeout(() => menuRef.current?.querySelector('button')?.focus(), 0);
+          }
+        }}
+      >
         <SortDesc className="h-4 w-4" />
         <span className="hidden sm:inline">Sort</span>
         <ChevronDown className="h-3 w-3" />
-      </button>
-      <div className="absolute right-0 z-20 mt-1 hidden w-48 max-w-[calc(100vw-2rem)] rounded-lg border border-white/10 bg-bg-elev shadow-2xl group-hover:block hover:block">
-        {([
-          ['score-desc', 'Highest score first'],
-          ['score-asc',  'Lowest score first'],
-          ['name-asc',   'Name (A→Z)'],
-          ['name-desc',  'Name (Z→A)'],
-        ] as const).map(([k, label]) => (
+      </Button>
+      <div
+        ref={menuRef}
+        role="menu"
+        aria-label="Sort clips"
+        className={clsx(
+          'absolute right-0 z-20 mt-1 w-48 max-w-[calc(100vw-2rem)] rounded-lg border border-white/10 bg-bg-elev shadow-2xl',
+          open ? 'block' : 'hidden group-hover:block hover:block',
+        )}
+      >
+        {SORT_OPTIONS.map(([k, label]) => (
           <button
             key={k}
-            onClick={() => onChange(k)}
+            role="menuitemradio"
+            aria-checked={sort === k}
+            onClick={() => { onChange(k); close(); }}
             className={clsx(
               'flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition',
               sort === k ? 'bg-brand-500/15 text-white' : 'text-slate-300 hover:bg-white/5',
@@ -272,19 +388,11 @@ function SortMenu({ sort, onChange }: { sort: SortKey; onChange: (k: SortKey) =>
 
 function EmptyState({ hasClips }: { hasClips: boolean }) {
   return (
-    <div className="panel-elev grid place-items-center gap-3 py-16 text-slate-500">
-      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5">
-        <Captions className="h-6 w-6" />
-      </div>
-      {hasClips ? (
-        <p>No clips match your filters.</p>
-      ) : (
-        <>
-          <p>No clips yet. Upload a video to get started.</p>
-          <a href="/dashboard" className="btn-primary text-sm">Go to Dashboard</a>
-        </>
-      )}
-    </div>
+    <UIEmptyState
+      icon={<Captions className="h-6 w-6" />}
+      title={hasClips ? 'No clips match your filters.' : 'No clips yet. Upload a video to get started.'}
+      action={hasClips ? undefined : <Link to="/dashboard" className="btn-primary text-sm">Go to Dashboard</Link>}
+    />
   );
 }
 
@@ -359,7 +467,7 @@ function ClipCard({
           ref={videoRef}
           src={clip.url}
           className={clsx(
-            'absolute inset-0 h-full w-full opacity-0 group-hover:opacity-100 transition',
+            'absolute inset-0 h-full w-full opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100',
             clip.kind === 'longform' ? 'object-contain' : 'object-cover',
           )}
           controls
@@ -426,13 +534,13 @@ function ClipCard({
       <div className="flex min-w-0 flex-col gap-2 p-3">
         <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
           {clip.sourceKind === 'action_compilation' && (
-            <span className="max-w-full truncate rounded-full bg-fuchsia-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-fuchsia-200 ring-1 ring-fuchsia-400/20">
+            <span className="max-w-full truncate rounded-full bg-fuchsia-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-fuchsia-200 ring-1 ring-fuchsia-400/20">
               {clip.compilationName || (isHorizontalMontage ? 'Long-form montage' : 'Action compilation')}
             </span>
           )}
           {clip.kind !== 'longform' && clip.confidenceTier && (
             <span className={clsx(
-              'max-w-full truncate rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ring-1',
+              'max-w-full truncate rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ring-1',
               clip.confidenceTier === 'best'
                 ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20'
                 : clip.confidenceTier === 'strong'
@@ -443,28 +551,28 @@ function ClipCard({
             </span>
           )}
           {clip.exportPreset && (
-            <span className="max-w-full truncate rounded-full bg-white/5 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-slate-400 ring-1 ring-white/5">
+            <span className="max-w-full truncate rounded-full bg-white/5 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-slate-400 ring-1 ring-white/5">
               {clip.exportPreset.replaceAll('_', ' ')}
             </span>
           )}
           {clip.videoEncoder && (
-            <span className="max-w-full truncate rounded-full bg-emerald-500/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-emerald-300 ring-1 ring-emerald-500/20">
+            <span className="max-w-full truncate rounded-full bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-emerald-300 ring-1 ring-emerald-500/20">
               {clip.videoEncoder}
             </span>
           )}
           {clip.transcriptionProvider && (
-            <span className="max-w-full truncate rounded-full bg-sky-500/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-sky-300 ring-1 ring-sky-500/20">
+            <span className="max-w-full truncate rounded-full bg-sky-500/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-sky-300 ring-1 ring-sky-500/20">
               {clip.transcriptionProvider.replaceAll('_', ' ')}
             </span>
           )}
           {clip.topics?.slice(0, 2).map((topic) => (
-            <span key={topic} className="max-w-full truncate rounded-full bg-violet-500/10 px-2 py-0.5 text-[9px] text-violet-300 ring-1 ring-violet-500/20" title={topic}>
+            <span key={topic} className="max-w-full truncate rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] text-violet-300 ring-1 ring-violet-500/20" title={topic}>
               {topic}
             </span>
           ))}
         </div>
         {clip.rankingVersion && (
-          <div className="text-[9px] uppercase tracking-[0.18em] text-slate-500">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
             {clip.rankingVersion.replace('_', ' ')}
           </div>
         )}

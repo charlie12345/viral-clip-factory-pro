@@ -1229,7 +1229,7 @@ function SequenceWorkspace({
             >
               {['music', 'voiceover'].includes(asset.kind) ? <AudioLines className="h-3.5 w-3.5 text-emerald-300" /> : <Film className="h-3.5 w-3.5 text-cyan-300" />}
               <span className="min-w-0 flex-1 truncate">{asset.name}</span>
-              <span className="uppercase text-[8px] text-slate-700">{asset.kind}</span>
+              <span className="uppercase text-[10px] text-slate-700">{asset.kind}</span>
             </div>
           ))}
           {!mediaAssets.length && <EmptyState>Upload video, audio, or stills to build the media bin.</EmptyState>}
@@ -1305,29 +1305,29 @@ function SequenceWorkspace({
       <section className="min-w-0 p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-1">
-            <button className="btn-secondary h-8 px-2 text-[9px]" onClick={() => onAddTrack('video')}><Plus className="h-3 w-3" /> Video track</button>
-            <button className="btn-secondary h-8 px-2 text-[9px]" onClick={() => onAddTrack('audio')}><Plus className="h-3 w-3" /> Audio track</button>
-            <button className="btn-secondary h-8 px-2 text-[9px]" disabled={!selectedClipIds.size} onClick={onReplace}>Replace</button>
-            <button className="btn-secondary h-8 px-2 text-[9px]" disabled={!selectedClipIds.size} onClick={onLift}>Lift</button>
-            <button className="btn-secondary h-8 px-2 text-[9px]" disabled={!selectedClipIds.size} onClick={onExtract}>Extract</button>
+            <button className="btn-secondary h-8 px-2 text-[10px]" onClick={() => onAddTrack('video')}><Plus className="h-3 w-3" /> Video track</button>
+            <button className="btn-secondary h-8 px-2 text-[10px]" onClick={() => onAddTrack('audio')}><Plus className="h-3 w-3" /> Audio track</button>
+            <button className="btn-secondary h-8 px-2 text-[10px]" disabled={!selectedClipIds.size} onClick={onReplace}>Replace</button>
+            <button className="btn-secondary h-8 px-2 text-[10px]" disabled={!selectedClipIds.size} onClick={onLift}>Lift</button>
+            <button className="btn-secondary h-8 px-2 text-[10px]" disabled={!selectedClipIds.size} onClick={onExtract}>Extract</button>
           </div>
           <div className="flex flex-wrap gap-1">
-            <button className="btn-secondary h-8 px-2 text-[9px]" disabled={!selectedClipIds.size} onClick={onCopy}><Copy className="h-3 w-3" /> Copy</button>
-            <button className="btn-secondary h-8 px-2 text-[9px]" disabled={!clipboardCount} onClick={onPaste}><Clipboard className="h-3 w-3" /> Paste</button>
-            <button className="btn-secondary h-8 px-2 text-[9px]" disabled={selectedClipIds.size < 2} onClick={onLink}><Link2 className="h-3 w-3" /> Link</button>
-            <button className="btn-secondary h-8 px-2 text-[9px]" disabled={!selectedClipIds.size} onClick={onGroup}><Group className="h-3 w-3" /> Group</button>
-            <button className="btn-secondary h-8 px-2 text-[9px]" disabled={!selectedClipIds.size} onClick={onNest}><SquareStack className="h-3 w-3" /> Compound</button>
+            <button className="btn-secondary h-8 px-2 text-[10px]" disabled={!selectedClipIds.size} onClick={onCopy}><Copy className="h-3 w-3" /> Copy</button>
+            <button className="btn-secondary h-8 px-2 text-[10px]" disabled={!clipboardCount} onClick={onPaste}><Clipboard className="h-3 w-3" /> Paste</button>
+            <button className="btn-secondary h-8 px-2 text-[10px]" disabled={selectedClipIds.size < 2} onClick={onLink}><Link2 className="h-3 w-3" /> Link</button>
+            <button className="btn-secondary h-8 px-2 text-[10px]" disabled={!selectedClipIds.size} onClick={onGroup}><Group className="h-3 w-3" /> Group</button>
+            <button className="btn-secondary h-8 px-2 text-[10px]" disabled={!selectedClipIds.size} onClick={onNest}><SquareStack className="h-3 w-3" /> Compound</button>
           </div>
         </div>
 
         <div className="mt-4 overflow-hidden rounded-xl border border-white/5 bg-black/25">
           <div className="grid grid-cols-[150px_minmax(680px,1fr)] border-b border-white/5 bg-white/[0.025]">
-            <div className="px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-600">Tracks</div>
+            <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">Tracks</div>
             <div className="relative h-9">
               {Array.from({ length: 9 }, (_, index) => (
                 <span
                   key={index}
-                  className="absolute top-2 font-mono text-[8px] text-slate-700"
+                  className="absolute top-2 font-mono text-[10px] text-slate-700"
                   style={{ left: `${(index / 8) * 100}%` }}
                 >
                   {formatTime((index / 8) * sequenceDuration)}
@@ -1341,8 +1341,9 @@ function SequenceWorkspace({
               <div key={track.id} className="grid min-w-[830px] grid-cols-[150px_minmax(680px,1fr)] border-b border-white/5 last:border-b-0">
                 <div className={clsx('p-2', selectedTrackId === track.id && 'bg-cyan-500/5')} onClick={() => onSelectTrack(track.id)}>
                   <input
-                    className="w-full bg-transparent text-[10px] font-semibold text-slate-300 outline-none"
+                    className="w-full rounded-sm bg-transparent text-[10px] font-semibold text-slate-300 outline-none focus-visible:ring-1 focus-visible:ring-sky-400/70"
                     value={track.name}
+                    aria-label={`Track name: ${track.name}`}
                     onChange={(event) => onPatchTrack(track.id, { name: event.target.value })}
                   />
                   <div className="mt-2 flex items-center gap-1">
@@ -1398,11 +1399,11 @@ function SequenceWorkspace({
                         style={{ left: `${left}%`, width: `${width}%` }}
                         title={`${clip.name} ${formatTime(clip.timelineStart)}–${formatTime(clip.timelineEnd)}`}
                       >
-                        <span className="block truncate text-[9px] font-semibold text-white">{clip.name}</span>
-                        <span className="mt-1 block truncate font-mono text-[8px] text-slate-500">
+                        <span className="block truncate text-[10px] font-semibold text-white">{clip.name}</span>
+                        <span className="mt-1 block truncate font-mono text-[10px] text-slate-500">
                           {clip.speed.reverse ? 'REV ' : ''}{clip.speed.freeze ? 'FREEZE ' : ''}{clip.speed.rate.toFixed(2)}x
                         </span>
-                        <span className="mt-1 block truncate text-[8px] text-slate-600">{clip.sourceType}{clip.compoundId ? ' · compound' : ''}</span>
+                        <span className="mt-1 block truncate text-[10px] text-slate-600">{clip.sourceType}{clip.compoundId ? ' · compound' : ''}</span>
                       </button>
                     );
                   })}
@@ -1411,7 +1412,7 @@ function SequenceWorkspace({
             ))}
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-[9px] text-slate-600">
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-[10px] text-slate-600">
           <span>Ctrl/Shift-click for multi-select.</span>
           <span>Drag clips to move between tracks.</span>
           <span>Double-click a track lane to seek.</span>
@@ -1559,7 +1560,7 @@ function TimeEffectsWorkspace({
             </div>
             <div className="flex flex-wrap gap-1">
               {(['rectangle', 'ellipse', 'pen', 'gradient'] as const).map((type) => (
-                <button key={type} className="btn-secondary h-8 px-2 text-[9px]" onClick={() => onAddMask(type)}><Plus className="h-3 w-3" /> {type}</button>
+                <button key={type} className="btn-secondary h-8 px-2 text-[10px]" onClick={() => onAddMask(type)}><Plus className="h-3 w-3" /> {type}</button>
               ))}
             </div>
           </div>
@@ -1606,7 +1607,7 @@ function TimeEffectsWorkspace({
               {fxTemplates.slice(0, 8).map((template) => (
                 <button key={template.id} className="rounded-xl border border-white/5 bg-black/20 p-3 text-left hover:border-cyan-400/20" onClick={() => onApplyTemplate(template)}>
                   <span className="block text-[10px] font-semibold text-white">{template.name}</span>
-                  <span className="mt-1 block text-[9px] leading-relaxed text-slate-600">{template.description}</span>
+                  <span className="mt-1 block text-[10px] leading-relaxed text-slate-600">{template.description}</span>
                 </button>
               ))}
             </div>
@@ -1662,9 +1663,9 @@ function ColorWorkspace({
           <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
             <ToolRange label="Auto-grade strength" value={workflow.autoGrade.strength} min={0} max={1} step={0.05} onChange={(strength) => patchWorkflow({ autoGrade: { ...workflow.autoGrade, strength } })} />
             <div className="rounded-xl bg-black/20 p-3">
-              <div className="text-[9px] uppercase tracking-[0.14em] text-slate-600">Last confidence</div>
+              <div className="text-[10px] uppercase tracking-[0.14em] text-slate-600">Last confidence</div>
               <div className="mt-1 text-lg font-semibold text-white">{Math.round(workflow.autoGrade.confidence * 100)}%</div>
-              <div className="text-[9px] text-slate-600">{workflow.autoGrade.analyzedAt ? new Date(workflow.autoGrade.analyzedAt).toLocaleString() : 'Not analyzed'}</div>
+              <div className="text-[10px] text-slate-600">{workflow.autoGrade.analyzedAt ? new Date(workflow.autoGrade.analyzedAt).toLocaleString() : 'Not analyzed'}</div>
             </div>
           </div>
         </div>
@@ -1788,7 +1789,7 @@ function ColorWorkspace({
                   <span className="truncate text-[10px] font-semibold text-white">{version.name}</span>
                   <span className="chip">{version.source}</span>
                 </div>
-                <div className="mt-2 flex flex-wrap gap-2 font-mono text-[8px] text-slate-600">
+                <div className="mt-2 flex flex-wrap gap-2 font-mono text-[10px] text-slate-600">
                   <span>E {version.grade.exposure.toFixed(2)}</span>
                   <span>C {version.grade.contrast.toFixed(2)}</span>
                   <span>S {version.grade.saturation.toFixed(2)}</span>
@@ -1959,7 +1960,7 @@ function VoiceoverWorkspace({
               <div key={asset.id} className="flex items-center gap-2 rounded-xl border border-white/5 bg-black/20 p-3">
                 <AudioLines className="h-4 w-4 text-emerald-300" />
                 <span className="min-w-0 flex-1 truncate text-[10px] text-slate-300">{asset.name}</span>
-                <button className="btn-secondary h-7 px-2 text-[9px]" disabled={!selectedClip || alignMutation.isPending} onClick={() => alignMutation.mutate(asset.id)}>Align take</button>
+                <button className="btn-secondary h-7 px-2 text-[10px]" disabled={!selectedClip || alignMutation.isPending} onClick={() => alignMutation.mutate(asset.id)}>Align take</button>
               </div>
             ))}
             {!assets.length && <EmptyState>No voiceover takes yet.</EmptyState>}
@@ -2106,7 +2107,7 @@ function PublishWorkspace({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold text-white">{delivery.title}</div>
-                  <div className="mt-1 text-[9px] text-slate-600">Updated {new Date(delivery.updatedAt).toLocaleString()} · {delivery.destinations.join(', ') || 'No destinations'}</div>
+                  <div className="mt-1 text-[10px] text-slate-600">Updated {new Date(delivery.updatedAt).toLocaleString()} · {delivery.destinations.join(', ') || 'No destinations'}</div>
                 </div>
                 <a className="btn-secondary h-8 px-2 text-[10px]" href={api.longformDeliveryArchiveUrl(delivery.id)}><Download className="h-3 w-3" /> Package ZIP</a>
               </div>
@@ -2117,9 +2118,9 @@ function PublishWorkspace({
                       <span className="truncate text-[10px] font-semibold text-slate-200">{variant.label}</span>
                       <span className={clsx('chip', variant.status === 'complete' && 'text-emerald-300', variant.status === 'failed' && 'text-red-300')}>{variant.status}</span>
                     </div>
-                    <div className="mt-1 font-mono text-[8px] text-slate-700">{variant.aspect} · {variant.contentHash.slice(0, 10)}</div>
-                    {variant.outputUrl && <a className="mt-2 inline-flex text-[9px] text-cyan-300 hover:text-cyan-200" href={variant.outputUrl} target="_blank" rel="noreferrer">Open render</a>}
-                    {variant.error && <div className="mt-2 text-[9px] text-red-300">{variant.error}</div>}
+                    <div className="mt-1 font-mono text-[10px] text-slate-700">{variant.aspect} · {variant.contentHash.slice(0, 10)}</div>
+                    {variant.outputUrl && <a className="mt-2 inline-flex text-[10px] text-cyan-300 hover:text-cyan-200" href={variant.outputUrl} target="_blank" rel="noreferrer">Open render</a>}
+                    {variant.error && <div className="mt-2 text-[10px] text-red-300">{variant.error}</div>}
                   </div>
                 ))}
               </div>
@@ -2186,7 +2187,7 @@ function ReviewWorkspace({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold text-white">{review.title}</div>
-                  <div className="mt-1 text-[9px] text-slate-600">Expires {new Date(review.expiresAt).toLocaleDateString()} · {review.passwordRequired ? 'Password protected' : 'Token access'}</div>
+                  <div className="mt-1 text-[10px] text-slate-600">Expires {new Date(review.expiresAt).toLocaleDateString()} · {review.passwordRequired ? 'Password protected' : 'Token access'}</div>
                 </div>
                 <span className={clsx('chip', review.status === 'approved' && 'text-emerald-300', review.status === 'changes_requested' && 'text-amber-300')}>{review.status.replace('_', ' ')}</span>
               </div>
@@ -2197,9 +2198,9 @@ function ReviewWorkspace({
               <div className="mt-3 space-y-2">
                 {review.comments.slice(-20).map((comment) => (
                   <button key={comment.id} className="flex w-full items-start gap-3 rounded-lg border border-white/5 bg-white/[0.02] p-3 text-left hover:border-cyan-400/20" onClick={() => onSeek(comment.time)}>
-                    <span className="font-mono text-[9px] text-cyan-300">{formatTime(comment.time)}</span>
+                    <span className="font-mono text-[10px] text-cyan-300">{formatTime(comment.time)}</span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[9px] font-semibold text-slate-300">{comment.author}</span>
+                      <span className="block text-[10px] font-semibold text-slate-300">{comment.author}</span>
                       <span className="mt-1 block text-[10px] leading-relaxed text-slate-500">{comment.text}</span>
                     </span>
                     {comment.drawing.length > 0 && <span className="chip">drawing</span>}
@@ -2258,18 +2259,18 @@ function QcWorkspace({
                   'grid gap-3 rounded-xl border p-3 sm:grid-cols-[90px_100px_minmax(0,1fr)_auto] sm:items-center',
                   issue.severity === 'error' ? 'border-red-400/15 bg-red-500/5' : issue.severity === 'warning' ? 'border-amber-400/15 bg-amber-500/5' : 'border-cyan-400/10 bg-cyan-500/5',
                 )}>
-                  <button className="font-mono text-[9px] text-cyan-300" onClick={() => onSeek(issue.time)}>{formatTime(issue.time)}</button>
+                  <button className="font-mono text-[10px] text-cyan-300" onClick={() => onSeek(issue.time)}>{formatTime(issue.time)}</button>
                   <span className="chip w-fit">{issue.category}</span>
                   <div>
                     <div className="text-[10px] font-semibold text-slate-200">{issue.title}</div>
-                    <div className="mt-1 text-[9px] leading-relaxed text-slate-600">{issue.detail}</div>
+                    <div className="mt-1 text-[10px] leading-relaxed text-slate-600">{issue.detail}</div>
                   </div>
                   {marker ? (
-                    <button className={clsx('btn-secondary h-8 px-2 text-[9px]', marker.resolved && 'text-emerald-300')} onClick={() => onResolveMarker(marker.id)}>
+                    <button className={clsx('btn-secondary h-8 px-2 text-[10px]', marker.resolved && 'text-emerald-300')} onClick={() => onResolveMarker(marker.id)}>
                       <Check className="h-3 w-3" /> {marker.resolved ? 'Resolved' : 'Open'}
                     </button>
                   ) : (
-                    <button className="btn-secondary h-8 px-2 text-[9px]" onClick={() => onAddMarker(issue)}><Plus className="h-3 w-3" /> Marker</button>
+                    <button className="btn-secondary h-8 px-2 text-[10px]" onClick={() => onAddMarker(issue)}><Plus className="h-3 w-3" /> Marker</button>
                   )}
                 </div>
               );
@@ -2315,7 +2316,7 @@ function InterchangeWorkspace({ projectName }: { projectName: string }) {
                 <span className="text-[10px] font-semibold text-white">{format.label}</span>
                 <Download className="h-3.5 w-3.5 text-cyan-300" />
               </div>
-              <p className="mt-2 text-[9px] leading-relaxed text-slate-600">{format.detail}</p>
+              <p className="mt-2 text-[10px] leading-relaxed text-slate-600">{format.detail}</p>
             </a>
           ))}
         </div>
@@ -2327,7 +2328,7 @@ function InterchangeWorkspace({ projectName }: { projectName: string }) {
         </div>
         <div className="grid gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:grid-cols-[1fr_120px_auto]">
           <label className="space-y-1">
-            <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Turnover codec</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Turnover codec</span>
             <select className="input h-9 w-full text-[10px]" value={codec} onChange={(event) => setCodec(event.target.value as LongformConsolidation['codec'])}>
               <option value="prores">ProRes 422 HQ</option>
               <option value="dnxhr">DNxHR HQ</option>
@@ -2336,7 +2337,7 @@ function InterchangeWorkspace({ projectName }: { projectName: string }) {
             </select>
           </label>
           <label className="space-y-1">
-            <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Handles (sec)</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Handles (sec)</span>
             <input className="input h-9 w-full text-[10px]" type="number" min={0} max={120} step={0.5} value={handlesSec} onChange={(event) => setHandlesSec(clamp(Number(event.target.value), 0, 120))} />
           </label>
           <button className="btn-primary self-end" disabled={consolidateMutation.isPending} onClick={() => consolidateMutation.mutate()}>
@@ -2350,13 +2351,13 @@ function InterchangeWorkspace({ projectName }: { projectName: string }) {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-[10px] font-semibold text-white">{job.codec.toUpperCase()} · {job.handlesSec}s handles</div>
-                  <div className="mt-1 text-[9px] text-slate-600">
+                  <div className="mt-1 text-[10px] text-slate-600">
                     {job.status.replace('_', ' ')} · {job.summary.complete}/{job.summary.total} clips
                     {job.progress.current ? ` · ${job.progress.current}` : ''}
                   </div>
                 </div>
                 {job.downloadUrl && (
-                  <a className="btn-secondary h-8 px-2 text-[9px]" href={api.longformConsolidationArchiveUrl(job.id)}>
+                  <a className="btn-secondary h-8 px-2 text-[10px]" href={api.longformConsolidationArchiveUrl(job.id)}>
                     <Download className="h-3 w-3" /> ZIP
                   </a>
                 )}
@@ -2366,8 +2367,8 @@ function InterchangeWorkspace({ projectName }: { projectName: string }) {
                   <div className="h-full rounded-full bg-cyan-400 transition-all" style={{ width: `${clamp(job.progress.percent, 1, 100)}%` }} />
                 </div>
               )}
-              {job.error && <div className="mt-2 text-[9px] text-red-300">{job.error}</div>}
-              {job.warnings?.map((warning) => <div key={warning} className="mt-2 text-[9px] text-amber-300">{warning}</div>)}
+              {job.error && <div className="mt-2 text-[10px] text-red-300">{job.error}</div>}
+              {job.warnings?.map((warning) => <div key={warning} className="mt-2 text-[10px] text-amber-300">{warning}</div>)}
             </div>
           ))}
           {!consolidationsQuery.isLoading && !(consolidationsQuery.data || []).length && (
@@ -2380,7 +2381,7 @@ function InterchangeWorkspace({ projectName }: { projectName: string }) {
         </div>
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
           <div className="text-[10px] font-semibold text-slate-300">Turnover notes</div>
-          <ul className="mt-2 space-y-2 text-[9px] leading-relaxed text-slate-600">
+          <ul className="mt-2 space-y-2 text-[10px] leading-relaxed text-slate-600">
             <li>Consolidated AAF, FCPXML, OTIO, and EDL files point at the trimmed media included in the ZIP.</li>
             <li>Actual head and tail handles are recorded per clip when media starts or ends before the requested handle length.</li>
             <li>FCPXML and OTIO retain clip names, timing, track metadata, and external media references.</li>
@@ -2460,11 +2461,11 @@ function TemplateWorkspace({
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="text-[10px] font-semibold text-white">{template.name}</div>
-                  <div className="mt-1 text-[8px] uppercase tracking-[0.14em] text-cyan-400/60">{template.category}</div>
+                  <div className="mt-1 text-[10px] uppercase tracking-[0.14em] text-cyan-400/60">{template.category}</div>
                 </div>
                 <span className="chip">v{template.version}</span>
               </div>
-              <p className="mt-3 min-h-10 text-[9px] leading-relaxed text-slate-600">{template.description}</p>
+              <p className="mt-3 min-h-10 text-[10px] leading-relaxed text-slate-600">{template.description}</p>
               <div className="mt-3 flex gap-2">
                 <button className="btn-primary h-8 flex-1 text-[10px]" onClick={() => onApply(template)}><WandSparkles className="h-3 w-3" /> Apply</button>
                 {!builtIn && <button className="grid h-8 w-8 place-items-center rounded-lg text-slate-600 hover:bg-red-500/10 hover:text-red-300" onClick={() => onDelete(template.id)}><Trash2 className="h-3 w-3" /></button>}
@@ -2478,7 +2479,7 @@ function TemplateWorkspace({
 }
 
 function TrackButton({ active, title, onClick, children }: { active: boolean; title: string; onClick: () => void; children: React.ReactNode }) {
-  return <button className={clsx('grid h-6 min-w-6 place-items-center rounded text-[8px]', active ? 'bg-cyan-500/15 text-cyan-200' : 'text-slate-700 hover:bg-white/5 hover:text-slate-300')} title={title} onClick={onClick}>{children}</button>;
+  return <button className={clsx('grid h-6 min-w-6 place-items-center rounded text-[10px]', active ? 'bg-cyan-500/15 text-cyan-200' : 'text-slate-700 hover:bg-white/5 hover:text-slate-300')} title={title} onClick={onClick}>{children}</button>;
 }
 
 function TransitionControl({ label, value, onChange }: { label: string; value: { type: LongformTransitionType; duration: number }; onChange: (value: { type: LongformTransitionType; duration: number }) => void }) {
@@ -2494,7 +2495,7 @@ function TransitionControl({ label, value, onChange }: { label: string; value: {
           <option value="wipe_left">Wipe left</option>
           <option value="slide_left">Slide left</option>
         </select>
-        <input className="input h-9 px-2 font-mono text-[9px]" type="number" min={0} max={3} step={0.01} value={value.duration} onChange={(event) => onChange({ ...value, duration: Number(event.target.value) })} />
+        <input className="input h-9 px-2 font-mono text-[10px]" type="number" min={0} max={3} step={0.01} value={value.duration} onChange={(event) => onChange({ ...value, duration: Number(event.target.value) })} />
       </div>
     </div>
   );
@@ -2503,7 +2504,7 @@ function TransitionControl({ label, value, onChange }: { label: string; value: {
 function ToolRange({ label, value, min, max, step, suffix = '', onChange }: { label: string; value: number; min: number; max: number; step: number; suffix?: string; onChange: (value: number) => void }) {
   return (
     <label>
-      <span className="flex items-center justify-between gap-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+      <span className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600">
         {label}<span className="font-mono normal-case tracking-normal text-slate-400">{Number(value).toFixed(step < 0.1 ? 2 : step < 1 ? 1 : 0)}{suffix}</span>
       </span>
       <input className="mt-2 h-1.5 w-full cursor-pointer accent-cyan-400" type="range" value={value} min={min} max={max} step={step} onChange={(event) => onChange(Number(event.target.value))} />
@@ -2522,7 +2523,7 @@ function MiniNumber({ label, value, min, max, step, onChange }: { label: string;
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-2 rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-[9px] font-semibold text-slate-500">
+    <label className="flex cursor-pointer items-center justify-between gap-2 rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-[10px] font-semibold text-slate-500">
       <span className="capitalize">{label}</span>
       <input className="h-3.5 w-3.5 accent-cyan-400" type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
     </label>
@@ -2552,7 +2553,7 @@ function Metric({ label, value, tone }: { label: string; value: number | string;
   }[tone];
   return (
     <div className="rounded-xl border border-white/5 bg-black/20 p-4">
-      <div className="text-[9px] uppercase tracking-[0.14em] text-slate-600">{label}</div>
+      <div className="text-[10px] uppercase tracking-[0.14em] text-slate-600">{label}</div>
       <div className={clsx('mt-1 text-xl font-semibold', toneClass)}>{value}</div>
     </div>
   );

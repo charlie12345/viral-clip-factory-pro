@@ -6,7 +6,6 @@ import {
   Check,
   ChevronRight,
   CircleAlert,
-  Clock3,
   Layers3,
   ListChecks,
   Loader2,
@@ -22,6 +21,8 @@ import {
   type ShortsCandidate,
   type ShortsCandidateFeedback,
 } from '@/api/client';
+import { Button, Chip, PageState } from '@/components/ui';
+import { toast } from '@/store/toasts';
 
 type FeedbackMap = Record<string, ShortsCandidateFeedback>;
 
@@ -112,6 +113,10 @@ export function ShortsReviewPage() {
     onSuccess: (project) => {
       queryClient.setQueryData(['shorts-project', project.id], project);
       queryClient.invalidateQueries({ queryKey: ['shorts-projects'] });
+      toast('success', 'Review saved');
+    },
+    onError: (error) => {
+      toast('error', 'Review could not be saved', (error as Error).message);
     },
   });
   const renderMutation = useMutation({
@@ -123,6 +128,10 @@ export function ShortsReviewPage() {
       queryClient.invalidateQueries({ queryKey: ['shorts-projects'] });
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['job-status'] });
+      toast('success', `Rendering ${selected.size} selected candidate${selected.size === 1 ? '' : 's'}`, 'Track progress on the Jobs page.');
+    },
+    onError: (error) => {
+      toast('error', 'Render could not be started', (error as Error).message);
     },
   });
 
@@ -175,16 +184,16 @@ export function ShortsReviewPage() {
   }
 
   if (projectsQuery.isLoading) {
-    return <PageState title="Loading candidate reviews" detail="Reading saved source analyses." loading />;
+    return <PageState state="loading" title="Loading candidate reviews" detail="Reading saved source analyses." />;
   }
   if (projectsQuery.isError) {
-    return <PageState title="Candidate reviews unavailable" detail={(projectsQuery.error as Error).message} error />;
+    return <PageState state="error" title="Candidate reviews unavailable" detail={(projectsQuery.error as Error).message} />;
   }
   if (!projectsQuery.data?.length) {
-    return <PageState title="No candidate reviews yet" detail="Enable Review before rendering on a Shorts job. The completed analysis will appear here." />;
+    return <PageState state="empty" title="No candidate reviews yet" detail="Enable Review before rendering on a Shorts job. The completed analysis will appear here." />;
   }
   if (projectQuery.isError) {
-    return <PageState title="Candidate review unavailable" detail={(projectQuery.error as Error).message} error />;
+    return <PageState state="error" title="Candidate review unavailable" detail={(projectQuery.error as Error).message} />;
   }
 
   const project = projectQuery.data;
@@ -199,12 +208,12 @@ export function ShortsReviewPage() {
           <p className="mt-1 max-w-[70ch] text-sm leading-relaxed text-slate-400">One recommended length is shown first in each story. Alternate durations stay attached instead of becoming duplicate exports.</p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <button className="btn-secondary" disabled={saveMutation.isPending || !project} onClick={() => saveMutation.mutate()}>
+          <Button variant="secondary" disabled={saveMutation.isPending || !project} onClick={() => saveMutation.mutate()}>
             {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save review
-          </button>
-          <button className="btn-primary" disabled={!selected.size || renderMutation.isPending || !project} onClick={() => renderMutation.mutate()}>
+          </Button>
+          <Button variant="primary" disabled={!selected.size || renderMutation.isPending || !project} onClick={() => renderMutation.mutate()}>
             {renderMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />} Render {selected.size} selected
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -264,8 +273,8 @@ export function ShortsReviewPage() {
                   </div>
                   <div className="min-w-0 p-4 sm:p-5">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="chip"><Sparkles className="h-3.5 w-3.5" /> {project.clusterCount} unique stories</span>
-                      <span className="chip"><Check className="h-3.5 w-3.5" /> {selected.size} selected</span>
+                      <Chip><Sparkles className="h-3.5 w-3.5" /> {project.clusterCount} unique stories</Chip>
+                      <Chip><Check className="h-3.5 w-3.5" /> {selected.size} selected</Chip>
                     </div>
                     {activeCandidate ? (
                       <div className="mt-4 min-w-0">
@@ -366,8 +375,8 @@ function StoryGroup({ index, candidates, selected, feedback, activeCandidateId, 
                 <span className="flex flex-wrap items-center gap-2">
                   <span className="font-mono text-[10px] text-slate-500">{formatTime(candidate.start)} · {candidate.duration.toFixed(1)} sec</span>
                   <span className="font-mono text-[10px] text-emerald-300">{candidate.score.toFixed(1)}</span>
-                  {candidate.variantRank === 1 && <span className="rounded bg-white/5 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400">Recommended</span>}
-                  {candidate.exported && <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-blue-300">Rendered</span>}
+                  {candidate.variantRank === 1 && <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Recommended</span>}
+                  {candidate.exported && <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-300">Rendered</span>}
                 </span>
                 <span className="mt-1.5 block break-words text-xs leading-relaxed text-slate-300 line-clamp-2 [overflow-wrap:anywhere]">{candidate.text}</span>
               </button>
@@ -415,19 +424,5 @@ function BoundaryInput({ label, value, min, max, onChange }: {
         }}
       />
     </label>
-  );
-}
-
-function PageState({ title, detail, loading = false, error = false }: { title: string; detail: string; loading?: boolean; error?: boolean }) {
-  return (
-    <div className="mx-auto grid min-h-[65dvh] max-w-3xl place-items-center px-4 py-12 text-center">
-      <div>
-        <div className={clsx('mx-auto grid h-12 w-12 place-items-center rounded-2xl border', error ? 'border-red-500/20 bg-red-500/10 text-red-300' : 'border-white/10 bg-white/5 text-slate-300')}>
-          {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : error ? <CircleAlert className="h-5 w-5" /> : <Clock3 className="h-5 w-5" />}
-        </div>
-        <h1 className="mt-4 text-xl font-black tracking-tight text-white">{title}</h1>
-        <p className="mt-2 text-sm leading-relaxed text-slate-500">{detail}</p>
-      </div>
-    </div>
   );
 }
