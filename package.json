@@ -12,7 +12,7 @@
     "build:webui": "./scripts/build-webui.sh",
     "install:all": "npm ci && npm --prefix webui ci",
     "typecheck:webui": "cd webui && node ./node_modules/typescript/lib/tsc.js -b --noEmit",
-    "test:node": "node --test dashboard/*.test.js",
+    "test:node": "node scripts/run-node-tests.cjs",
     "test:python": "node tests/run-python-tests.js",
     "test:scripts": "./tests/install-whisper-cpp.test.sh",
     "test": "npm run test:node && npm run test:python && npm run test:scripts && npm run typecheck:webui"
