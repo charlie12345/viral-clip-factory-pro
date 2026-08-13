@@ -370,7 +370,9 @@ AGPL-3.0 or hold an Ultralytics Enterprise license.
 
 If you deploy the app where people can access it over a network, AGPL section
 13 requires you to prominently offer those users the corresponding source at no
-charge. The UI provides a **Source & license** link for this purpose. Set
+charge. The current public corresponding source is available in the
+[Viral Clip Factory source tree](https://github.com/charlie12345/viral-clip-factory-pro/tree/main).
+The UI provides a **Source & license** link for this purpose. Set
 `VCF_SOURCE_URL` to the public URL for the exact source revision you deploy,
 including your changes, scripts, and configuration. A private repository or an
 inaccessible link does not meet that requirement.
