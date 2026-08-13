@@ -1,6 +1,8 @@
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { clsx } from 'clsx';
+import { useQuery } from '@tanstack/react-query';
 import { Flame, LayoutDashboard, Film, ListChecks, Activity, Settings, Clapperboard } from 'lucide-react';
+import { api } from '@/api/client';
 import { useActiveJob } from '@/hooks/queries';
 import { useEffect, useRef } from 'react';
 import { Toaster } from '@/components/ui';
@@ -19,8 +21,15 @@ const NAV = [
 export function AppLayout() {
   const location = useLocation();
   const { data: job } = useActiveJob();
+  const { data: legal } = useQuery({
+    queryKey: ['legal-info'],
+    queryFn: () => api.legalInfo(),
+    staleTime: Infinity,
+    retry: 0,
+  });
   const isLongformEditor = location.pathname.startsWith('/longform-editor/');
   const shortcutsHelp = useGlobalShortcuts();
+  const sourceUrl = legal?.sourceUrl ?? 'https://github.com/charlie12345/viral-clip-factory-pro';
 
   // Title reflects current page
   useEffect(() => {
@@ -87,6 +96,14 @@ export function AppLayout() {
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
             <span>Server: {window.location.host}</span>
           </div>
+          <a
+            className="mt-2 block px-1 text-slate-400 underline decoration-slate-600 underline-offset-2 hover:text-white"
+            href={sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Source & license (AGPL-3.0)
+          </a>
         </div>
       </aside>
 
@@ -124,6 +141,13 @@ export function AppLayout() {
 
       <main className={clsx('min-w-0 max-w-full flex-1', isLongformEditor ? 'pt-0' : 'pt-12 md:pt-0')}>
         <Outlet />
+        <footer className="border-t border-white/5 px-4 py-3 text-center text-[11px] text-slate-500">
+          <span>Viral Clip Factory is licensed under AGPL-3.0-only. </span>
+          <a className="text-slate-300 underline decoration-slate-600 underline-offset-2 hover:text-white" href={sourceUrl} target="_blank" rel="noreferrer">
+            Get the corresponding source
+          </a>
+          <span> · No warranty.</span>
+        </footer>
       </main>
       <Toaster />
       {shortcutsHelp}

@@ -1,6 +1,7 @@
 {
   "name": "viral-clip-factory",
   "version": "0.2.0",
+  "license": "AGPL-3.0-only",
   "private": true,
   "description": "Local-first viral clip generator with a browser dashboard and Python render pipeline.",
   "scripts": {

@@ -1,5 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/client';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Toaster } from '@/components/ui';
@@ -25,12 +27,32 @@ function RouteFallback() {
   );
 }
 
+function LegalFooter() {
+  const { data: legal } = useQuery({
+    queryKey: ['legal-info'],
+    queryFn: () => api.legalInfo(),
+    staleTime: Infinity,
+    retry: 0,
+  });
+  const sourceUrl = legal?.sourceUrl ?? 'https://github.com/charlie12345/viral-clip-factory-pro';
+
+  return (
+    <footer className="border-t border-white/5 bg-app-bg px-4 py-3 text-center text-[11px] text-slate-500">
+      <span>Viral Clip Factory is licensed under AGPL-3.0-only. </span>
+      <a className="text-slate-300 underline decoration-slate-600 underline-offset-2 hover:text-white" href={sourceUrl} target="_blank" rel="noreferrer">
+        Get the corresponding source
+      </a>
+      <span> · No warranty.</span>
+    </footer>
+  );
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <Suspense fallback={<RouteFallback />}>
         <Routes>
-          <Route path="/longform-review/:token" element={<><LongformReviewPage /><Toaster /></>} />
+          <Route path="/longform-review/:token" element={<><LongformReviewPage /><LegalFooter /><Toaster /></>} />
           <Route element={<AppLayout />}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />

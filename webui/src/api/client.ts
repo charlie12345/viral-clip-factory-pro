@@ -3,6 +3,11 @@
 
 import type { RenderSettings } from '@/lib/render-options';
 
+export interface LegalInfo {
+  license: 'AGPL-3.0-only';
+  sourceUrl: string;
+}
+
 export interface ClipSummary {
   name: string;
   url: string;
@@ -1420,6 +1425,7 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(settings),
     }),
+  legalInfo: () => request<LegalInfo>('/api/legal'),
   systemCapabilities: () => request<SystemCapabilities>('/api/system/capabilities'),
   jobPreflight: (settings: RenderSettings) =>
     request<JobPreflight>('/api/jobs/preflight', {

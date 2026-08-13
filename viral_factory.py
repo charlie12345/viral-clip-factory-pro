@@ -5258,7 +5258,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         "Poppins Black", "Poppins Bold", "Barlow Condensed Black", "Archivo Black",
         "Rajdhani Bold",
         # Compatible open-source fonts
-        "Liberation Sans", "Liberation Serif", "Liberation Mono", "Liberation Sans Narrow",
+        "Liberation Sans", "Liberation Serif", "Liberation Mono",
         "Comic Neue",
         # Open-source alternatives
         "DejaVu Sans", "DejaVu Serif",

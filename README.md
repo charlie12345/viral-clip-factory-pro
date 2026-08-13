@@ -359,6 +359,25 @@ See [SETUP.md](docs/SETUP.md) for the full setup guide.
 
 See [THIRD_PARTY.md](docs/THIRD_PARTY.md) for dependency and licensing notes. See [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for build/runtime segfault recovery steps.
 
-## Current License Position
+## License and Ultralytics YOLO
 
-This repo includes a `LICENSE` using `AGPL-3.0-only` as the safest default because the current implementation imports Ultralytics YOLO directly. Review that choice before publishing if you later replace that dependency or obtain separate licensing terms.
+Viral Clip Factory is released under **AGPL-3.0-only**; see [LICENSE](LICENSE).
+That is the open-source route required for this project because it imports
+Ultralytics YOLO and uses its downloadable YOLO weights. Under Ultralytics'
+published licensing terms, an application using its code, models, or training
+pipeline must either release the complete corresponding project source under
+AGPL-3.0 or hold an Ultralytics Enterprise license.
+
+If you deploy the app where people can access it over a network, AGPL section
+13 requires you to prominently offer those users the corresponding source at no
+charge. The UI provides a **Source & license** link for this purpose. Set
+`VCF_SOURCE_URL` to the public URL for the exact source revision you deploy,
+including your changes, scripts, and configuration. A private repository or an
+inaccessible link does not meet that requirement.
+
+Do not distribute a proprietary or private YOLO-enabled build under this
+repository's default terms. For commercial use, either meet the same AGPL
+source-availability requirements or obtain an Ultralytics Enterprise license.
+Alternatively, remove Ultralytics YOLO and its weights and complete a fresh
+license review. See [THIRD_PARTY.md](docs/THIRD_PARTY.md) for the audited
+dependency and font notices.
