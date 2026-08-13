@@ -143,8 +143,12 @@ test('atomic persistence writes normalized JSON with owner-only permissions', (t
     });
 
     assert.deepEqual(readProviderSettings(filePath), saved);
-    assert.equal(fs.statSync(filePath).mode & 0o777, 0o600);
-    assert.equal(fs.statSync(path.dirname(filePath)).mode & 0o777, 0o700);
+    // Windows uses ACLs instead of POSIX mode bits, which Node does not
+    // expose through stat(). The creation/chmod requests are still exercised.
+    if (process.platform !== 'win32') {
+        assert.equal(fs.statSync(filePath).mode & 0o777, 0o600);
+        assert.equal(fs.statSync(path.dirname(filePath)).mode & 0o777, 0o700);
+    }
     assert.equal(fs.readdirSync(path.dirname(filePath)).some((name) => name.endsWith('.tmp')), false);
     assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(filePath, 'utf8'))).sort(), [
         'deepgramApiKey',

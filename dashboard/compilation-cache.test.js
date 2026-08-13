@@ -49,7 +49,11 @@ test('retains the first successful compilation and publishes a recoverable marke
     assert.equal(latest.outputName, 'Cosplay-final-1.mp4');
     assert.equal(latest.manifestPath, path.join(projectDir, 'manifest.json'));
     assert.equal(fs.readFileSync(path.join(projectDir, 'sources/source-001.mp4'), 'utf8'), 'first-source');
-    assert.equal(fs.statSync(path.join(rootDir, LATEST_COMPILATION_MARKER)).mode & 0o777, 0o600);
+    // Windows exposes ACLs rather than POSIX mode bits; the production code
+    // still requests owner-only access there, but Node cannot read it back.
+    if (process.platform !== 'win32') {
+        assert.equal(fs.statSync(path.join(rootDir, LATEST_COMPILATION_MARKER)).mode & 0o777, 0o600);
+    }
 });
 
 test('a newer success replaces the old cache and prunes stale upload directories', (t) => {
