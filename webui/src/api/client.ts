@@ -3,9 +3,16 @@
 
 import type { RenderSettings } from '@/lib/render-options';
 
+export interface ThirdPartySource {
+  name: string;
+  version: string;
+  sourceUrl: string;
+}
+
 export interface LegalInfo {
   license: 'AGPL-3.0-only';
   sourceUrl: string;
+  thirdPartySources: ThirdPartySource[];
 }
 
 export interface ClipSummary {

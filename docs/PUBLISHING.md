@@ -51,6 +51,9 @@ making a YOLO-enabled build available to anyone over a network:
 3. Keep the AGPL [LICENSE](../LICENSE), [NOTICE](../NOTICE), and bundled-font
    notices intact. If you distribute YOLO weights, treat them as covered by the
    same Ultralytics licensing route.
+4. Preserve the locked `ultralytics==8.4.91` dependency and its direct source
+   link in [THIRD_PARTY.md](THIRD_PARTY.md). If you update Ultralytics, update
+   the lockfile, in-app legal notice, and exact upstream source commit together.
 
 A private repository does not satisfy this source-offer requirement for a
 network-accessible deployment. If the product must remain proprietary or the

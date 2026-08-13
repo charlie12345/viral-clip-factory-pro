@@ -30,6 +30,7 @@ export function AppLayout() {
   const isLongformEditor = location.pathname.startsWith('/longform-editor/');
   const shortcutsHelp = useGlobalShortcuts();
   const sourceUrl = legal?.sourceUrl ?? 'https://github.com/charlie12345/viral-clip-factory-pro/tree/main';
+  const yoloSource = legal?.thirdPartySources.find((source) => source.name === 'Ultralytics YOLO');
 
   // Title reflects current page
   useEffect(() => {
@@ -104,6 +105,16 @@ export function AppLayout() {
           >
             Source & license (AGPL-3.0)
           </a>
+          {yoloSource && (
+            <a
+              className="mt-1 block px-1 text-slate-400 underline decoration-slate-600 underline-offset-2 hover:text-white"
+              href={yoloSource.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {yoloSource.name} v{yoloSource.version} source
+            </a>
+          )}
         </div>
       </aside>
 
@@ -146,6 +157,12 @@ export function AppLayout() {
           <a className="text-slate-300 underline decoration-slate-600 underline-offset-2 hover:text-white" href={sourceUrl} target="_blank" rel="noreferrer">
             Get the corresponding source
           </a>
+          {yoloSource && <>
+            <span> · </span>
+            <a className="text-slate-300 underline decoration-slate-600 underline-offset-2 hover:text-white" href={yoloSource.sourceUrl} target="_blank" rel="noreferrer">
+              {yoloSource.name} v{yoloSource.version} source
+            </a>
+          </>}
           <span> · No warranty.</span>
         </footer>
       </main>

@@ -35,6 +35,7 @@ function LegalFooter() {
     retry: 0,
   });
   const sourceUrl = legal?.sourceUrl ?? 'https://github.com/charlie12345/viral-clip-factory-pro/tree/main';
+  const yoloSource = legal?.thirdPartySources.find((source) => source.name === 'Ultralytics YOLO');
 
   return (
     <footer className="border-t border-white/5 bg-app-bg px-4 py-3 text-center text-[11px] text-slate-500">
@@ -42,6 +43,12 @@ function LegalFooter() {
       <a className="text-slate-300 underline decoration-slate-600 underline-offset-2 hover:text-white" href={sourceUrl} target="_blank" rel="noreferrer">
         Get the corresponding source
       </a>
+      {yoloSource && <>
+        <span> · </span>
+        <a className="text-slate-300 underline decoration-slate-600 underline-offset-2 hover:text-white" href={yoloSource.sourceUrl} target="_blank" rel="noreferrer">
+          {yoloSource.name} v{yoloSource.version} source
+        </a>
+      </>}
       <span> · No warranty.</span>
     </footer>
   );

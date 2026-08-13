@@ -372,6 +372,9 @@ If you deploy the app where people can access it over a network, AGPL section
 13 requires you to prominently offer those users the corresponding source at no
 charge. The current public corresponding source is available in the
 [Viral Clip Factory source tree](https://github.com/charlie12345/viral-clip-factory-pro/tree/main).
+This repository does not vendor Ultralytics' code: the locked installer uses
+`ultralytics==8.4.91`, whose exact upstream source is
+[Ultralytics YOLO v8.4.91](https://github.com/ultralytics/ultralytics/tree/8fc958ed38c4c4f8b58da9f5f4f24183aa2bbb96).
 The UI provides a **Source & license** link for this purpose. Set
 `VCF_SOURCE_URL` to the public URL for the exact source revision you deploy,
 including your changes, scripts, and configuration. A private repository or an

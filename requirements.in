@@ -6,7 +6,7 @@ numpy
 pyaaf2==1.7.1
 PyYAML
 face-recognition
-ultralytics
+ultralytics==8.4.91
 librosa
 yt-dlp
 pytubefix

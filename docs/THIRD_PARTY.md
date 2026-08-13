@@ -45,7 +45,7 @@ distribution's license scan.
 
 | Component | License family | Use |
 | --- | --- | --- |
-| Ultralytics / `ultralytics` | AGPL-3.0 or Enterprise | YOLO person detection and layout analysis |
+| [Ultralytics YOLO v8.4.91](https://github.com/ultralytics/ultralytics/tree/8fc958ed38c4c4f8b58da9f5f4f24183aa2bbb96) / `ultralytics==8.4.91` | AGPL-3.0 or Enterprise | YOLO person detection and layout analysis |
 | `openai-whisper` | MIT | local transcription |
 | PyTorch / `torch`, `torchvision` | BSD-style | ML runtime |
 | OpenCV | Apache-2.0 | video/image processing |
@@ -54,6 +54,12 @@ distribution's license scan.
 | `librosa` | ISC | audio analysis |
 | `yt-dlp` | Unlicense | optional source download |
 | Node/React/Vite/Express application dependencies | permissive licenses | dashboard and web UI |
+
+The source tree does not vendor Ultralytics. The exact `ultralytics==8.4.91`
+release is locked in [requirements.lock.txt](../requirements.lock.txt), and its
+upstream source is the immutable commit linked in the table. The dashboard's
+legal notice links both to Viral Clip Factory's corresponding source and to
+that Ultralytics source.
 
 ## Not bundled
 

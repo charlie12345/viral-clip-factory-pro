@@ -3,12 +3,23 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { DEFAULT_SOURCE_URL, legalInfo, sourceUrlFromEnvironment } = require('./legal-info');
+const {
+    DEFAULT_SOURCE_URL,
+    ULTRALYTICS_SOURCE_URL,
+    ULTRALYTICS_VERSION,
+    legalInfo,
+    sourceUrlFromEnvironment,
+} = require('./legal-info');
 
 test('uses the documented public source repository by default', () => {
     assert.deepEqual(legalInfo({}), {
         license: 'AGPL-3.0-only',
         sourceUrl: DEFAULT_SOURCE_URL,
+        thirdPartySources: [{
+            name: 'Ultralytics YOLO',
+            version: ULTRALYTICS_VERSION,
+            sourceUrl: ULTRALYTICS_SOURCE_URL,
+        }],
     });
 });
 
