@@ -15,17 +15,6 @@ Local-first viral clip generator with:
 
 The repository does not include personal secrets, local logs, uploaded media, generated clips, model weights, or machine-specific runtime state.
 
-## Clean-clone privacy and repository safety
-
-This public source tree is designed to be safe to clone and start from scratch:
-
-- Uploaded footage, rendered clips, source copies, download/job history, temporary render files, and local runtime state are ignored by Git.
-- `.env` files, private keys, credential files, model weights, virtual environments, generated web bundles, and local FFmpeg downloads are ignored too.
-- The only credential file in the repository is [`.env.example`](.env.example), which contains empty placeholders. Copy it to `.env` locally; never commit your populated `.env` file.
-- The app creates its upload, output, and job-history directories on the machine that runs it. A fresh clone contains only placeholder directories, not anyone’s content.
-
-If you are publishing a fork or contributing changes, run `git status --ignored` before committing and stage named source files instead of using a blanket `git add -A`.
-
 ## Do I Need API Keys?
 
 No for the core app.
