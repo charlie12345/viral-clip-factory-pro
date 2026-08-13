@@ -49,6 +49,7 @@ const {
 const {
     assertConfiguredMediaMount,
 } = require('./media-storage');
+const { legalInfo } = require('./legal-info');
 const {
     buildLongformEdl,
     buildLongformFcpxml,
@@ -421,6 +422,10 @@ try {
 applyProviderEnvironment(savedProviderSettings, PROVIDER_BOOTSTRAP_ENV, process.env);
 
 app.use(express.static(path.join(__dirname, 'public')));
+app.get('/api/legal', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(legalInfo());
+});
 app.use('/clips', express.static(CLIPS_DIR, {
     maxAge: '1h',           // browser caches clip files for 1 hour
     immutable: false,
@@ -1068,6 +1073,9 @@ function buildRerenderPayload(meta, overrides = {}) {
 
     if (hasOwn(overrides, 'fontSize')) payload.subtitle_fontsize = overrides.fontSize;
     else if (!hasOwn(payload, 'subtitle_fontsize')) payload.subtitle_fontsize = meta.subtitle_fontsize ?? null;
+
+    if (hasOwn(overrides, 'glow')) payload.subtitle_glow = overrides.glow === true;
+    else if (!hasOwn(payload, 'subtitle_glow')) payload.subtitle_glow = meta.subtitle_glow === true;
 
     if (hasOwn(overrides, 'width')) payload.subtitle_width = overrides.width;
     else if (!hasOwn(payload, 'subtitle_width')) payload.subtitle_width = meta.subtitle_width ?? null;

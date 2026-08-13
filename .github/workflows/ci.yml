@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# Windows GitHub runners otherwise use a legacy console encoding, while the
+# CLI emits user-facing Unicode status markers during fallback paths.
+env:
+  PYTHONUTF8: "1"
+
 jobs:
   test:
     strategy:
@@ -27,6 +32,11 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             webui/package-lock.json
+      # The unit suite exercises the caption renderer and long-form helpers.
+      # Keep this deliberately small: full local installs also include ML
+      # models and hardware runtimes that CI never needs.
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install numpy opencv-python-headless PyYAML
       - run: npm ci
       - run: npm --prefix webui ci
       - run: npm run test:node
@@ -36,4 +46,3 @@ jobs:
         run: npm run build
       - if: runner.os == 'Windows'
         run: npm --prefix webui run build:fast
-

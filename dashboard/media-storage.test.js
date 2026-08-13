@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const path = require('node:path');
 const test = require('node:test');
 
 const { assertConfiguredMediaMount } = require('./media-storage');
@@ -14,13 +15,15 @@ function directoryStats({ dev, symbolic = false }) {
 }
 
 test('allows an explicitly mounted media root on a distinct device', () => {
+    const mountPath = path.resolve('vcf-media-mount');
+    const mediaRoot = path.join(mountPath, 'viral-clip-factory');
     const resolved = assertConfiguredMediaMount({
-        mediaRoot: '/mnt/media/viral-clip-factory',
-        mountPath: '/mnt/media',
+        mediaRoot,
+        mountPath,
         lstatSync: () => directoryStats({ dev: 20 }),
-        statSync: (target) => directoryStats({ dev: target === '/mnt/media' ? 20 : 10 }),
+        statSync: (target) => directoryStats({ dev: target === mountPath ? 20 : 10 }),
     });
-    assert.equal(resolved, '/mnt/media');
+    assert.equal(resolved, mountPath);
 });
 
 test('rejects an absent mount that would write through to the parent filesystem', () => {

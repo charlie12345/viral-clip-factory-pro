@@ -297,7 +297,9 @@ function buildFactoryArgs(scriptPath, uploadPath, options = {}) {
         : normalized.mode;
     const args = [scriptPath, uploadPath, '--mode', pipelineMode];
     if (normalized.upscale) args.push('--upscale');
-    if (normalized.mode === 'shorts' && normalized.subtitleStyle && normalized.subtitleStyle !== 'none') args.push('--subtitle-style', normalized.subtitleStyle);
+    // Pass every explicit choice, including `none`; omitting it lets the
+    // Python CLI fall back to classic captions and loses the user's choice.
+    if (normalized.mode === 'shorts' && normalized.subtitleStyle) args.push('--subtitle-style', normalized.subtitleStyle);
     if (normalized.mode === 'shorts' && normalized.maxDuration) args.push('--max-duration', normalized.maxDuration);
     if (normalized.mode === 'shorts') args.push('--clip-volume', normalized.clipVolume);
     if (normalized.mode === 'shorts' && normalized.clipVolume === 'exact') args.push('--target-clips', normalized.targetClips);

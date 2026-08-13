@@ -1,54 +1,87 @@
-# Third-Party Components
+# Third-Party Components and Notices
 
-This file is practical release documentation, not legal advice.
+This file records the third-party material present in the source release. It is
+practical release documentation, not legal advice.
 
-## Not Bundled
+## Release posture
 
-Users are expected to install or obtain these separately:
+The application directly imports Ultralytics YOLO, so the project code is
+licensed `AGPL-3.0-only`; see [LICENSE](../LICENSE). A network deployment must
+offer its users the complete corresponding source for that deployed revision.
+See [PUBLISHING.md](PUBLISHING.md) before deploying or redistributing it.
 
-- Node.js
-- Python
-- `ffmpeg`
-- PyTorch runtime
-- Whisper model downloads
-- optional `whisper.cpp` executable, GGML transcription model, and Silero VAD model
-- optional ROCm/AMD or CUDA/NVIDIA drivers
-- optional YOLO weight files such as `yolov8n.pt`
+## Bundled fonts
 
-## Python Libraries Used By The App
+The following unmodified font binaries are committed in `dashboard/public/fonts`
+or `webui/public/fonts`. The project AGPL license applies to Viral Clip Factory
+code, not to these font files. The full SIL Open Font License 1.1 is included
+at [licenses/SIL-OFL-1.1.txt](licenses/SIL-OFL-1.1.txt).
 
-- `openai-whisper`
-- `torch`
-- `opencv-python`
-- `numpy`
-- `PyYAML`
-- `face-recognition`
-- `ultralytics`
-- `librosa`
-- `yt-dlp`
-- `pytubefix`
+| Font files | Copyright notice / source | License |
+| --- | --- | --- |
+| `Anton-Regular.ttf` | Copyright 2020 The Anton Project Authors | SIL Open Font License 1.1 |
+| `Archivo-Black.ttf` | Copyright 2017 The Archivo Black Project Authors | SIL Open Font License 1.1 |
+| `BarlowCondensed-Black.ttf` | Copyright 2017 The Barlow Project Authors | SIL Open Font License 1.1 |
+| `BebasNeue-Regular.ttf` | Copyright 2019 The Bebas Neue Project Authors | SIL Open Font License 1.1 |
+| `ComicNeue-Bold.ttf` | Copyright 2014 The Comic Neue Project Authors | SIL Open Font License 1.1 |
+| `Montserrat-Black.ttf`, `Montserrat-Bold.ttf` | Copyright 2011 The Montserrat Project Authors | SIL Open Font License 1.1 |
+| `Oswald-Bold.ttf` | Copyright 2016 The Oswald Project Authors | SIL Open Font License 1.1 |
+| `Poppins-Black.ttf`, `Poppins-Bold.ttf` | Copyright 2020 The Poppins Project Authors | SIL Open Font License 1.1 |
+| `Rajdhani-Bold.ttf` | Copyright 2014 The Rajdhani Project Authors, Indian Type Foundry | SIL Open Font License 1.1 |
+| `LiberationMono-Bold.ttf`, `LiberationSans-Bold.ttf`, `LiberationSerif-Bold.ttf` | Digitized data copyright 2010 Google Corporation; Liberation font design and documentation copyright Red Hat, Inc. | SIL Open Font License 1.1 (Reserved Font Name: Liberation) |
+| `inter-var-latin.woff2` | Copyright 2020 The Inter Project Authors | SIL Open Font License 1.1 |
+| `DejaVuSans-Bold.ttf`, `DejaVuSerif-Bold.ttf` | Bitstream, Inc. (2003); DejaVu changes in the public domain by Tavmjong Bah (2006) | Bitstream Vera / Arev notices embedded in the original, unmodified font files; see https://dejavu-fonts.github.io/License.html |
 
-## Important Notes
+Redistributors must preserve the above notices and the applicable font license
+when they redistribute these font files. Do not rename or modify OFL fonts in a
+way that violates their Reserved Font Name conditions.
 
-- The current implementation imports Ultralytics YOLO directly. That is the main reason this clean repo defaults to an `AGPL-3.0-only` project license for now.
-- `ffmpeg` is an external binary. If you distribute your own packaged binary later, review its exact build configuration and licensing obligations.
-- The clean repo intentionally excludes personal credentials, local media, local model weights, runtime logs, and generated outputs.
-- The optional whisper.cpp helper fetches source, transcription weights, and Silero VAD weights from official upstream projects during installation; none are redistributed in this repository.
-- The clean repo also excludes the Microsoft-style Office font files that existed in the working environment.
-- Deepgram Nova-3 transcription and Gemini video analysis are optional cloud services. They receive media only when the user explicitly enables the corresponding provider for a job.
-- An optional semantic reranker calls a separately configured OpenAI-compatible model server. That server and its models are not distributed with this project.
-- Provider credentials stay in server-side environment variables; the dashboard receives availability status, not key values. Automatic topics are provider output and do not require user-entered keywords.
+## Dependencies installed separately
 
-## Reference Links
+The source tree does not vendor the following libraries or their license texts;
+package managers obtain them with their own metadata and notices. This list is
+the direct application dependency inventory, not a replacement for a packaged
+distribution's license scan.
+
+| Component | License family | Use |
+| --- | --- | --- |
+| Ultralytics / `ultralytics` | AGPL-3.0 or Enterprise | YOLO person detection and layout analysis |
+| `openai-whisper` | MIT | local transcription |
+| PyTorch / `torch`, `torchvision` | BSD-style | ML runtime |
+| OpenCV | Apache-2.0 | video/image processing |
+| NumPy | BSD-style and permissive notices | numeric processing |
+| `pyaaf2`, PyYAML, `face-recognition`, `face-recognition-models`, `pytubefix` | MIT | project and media helpers |
+| `librosa` | ISC | audio analysis |
+| `yt-dlp` | Unlicense | optional source download |
+| Node/React/Vite/Express application dependencies | permissive licenses | dashboard and web UI |
+
+## Not bundled
+
+Users install or obtain these separately: Node.js, Python, `ffmpeg`, PyTorch
+runtime, Whisper model downloads, optional `whisper.cpp` executable and GGML /
+Silero VAD models, optional ROCm or CUDA drivers, and YOLO weights such as
+`yolov8n.pt`. The clean repository intentionally excludes credentials, local
+media, model weights, runtime logs, generated outputs, and Microsoft-style
+Office fonts from the working environment.
+
+If you distribute a container, desktop package, `ffmpeg` binary, model weights,
+or any other artifact rather than this source tree, produce an artifact-specific
+license and notice inventory. `ffmpeg` licensing depends on its build options.
+
+## Services and optional integrations
+
+Deepgram Nova-3 and Gemini video analysis are optional cloud services; they
+receive media only when the user enables their provider for a job. An optional
+semantic reranker calls a separately configured OpenAI-compatible model server.
+Those services, servers, and models are not distributed with this project.
+
+## Reference links
 
 - Whisper: https://github.com/openai/whisper
 - whisper.cpp: https://github.com/ggml-org/whisper.cpp
-- whisper.cpp VAD models: https://huggingface.co/ggml-org/whisper-vad
-- Deepgram Nova-3: https://developers.deepgram.com/docs/models-languages-overview
-- Gemini video understanding: https://ai.google.dev/gemini-api/docs/video-understanding
-- llama.cpp OpenAI-compatible server: https://github.com/ggml-org/llama.cpp/tree/master/tools/server
-- face_recognition: https://github.com/ageitgey/face_recognition
-- FFmpeg legal page: https://ffmpeg.org/legal.html
-- Ultralytics license: https://www.ultralytics.com/license
+- Whisper VAD models: https://huggingface.co/ggml-org/whisper-vad
+- FFmpeg licensing: https://ffmpeg.org/legal.html
+- Ultralytics licensing: https://www.ultralytics.com/license
+- DejaVu Font License: https://dejavu-fonts.github.io/License.html
 - OpenCV license: https://opencv.org/license/
 - PyTorch repository: https://github.com/pytorch/pytorch

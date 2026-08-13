@@ -28,11 +28,8 @@ export function useClips() {
   const query = useQuery({
     queryKey: ['clips'],
     queryFn: () => api.listClips(),
-    refetchInterval: (q) => {
-      // Poll faster while a job is running so new clips appear live
-      const jobActive = q.state.data as unknown as boolean;
-      return jobActive ? 2000 : 10000;
-    },
+    // Poll faster while a job is running so new clips appear live
+    refetchInterval: () => (job.data?.active ? 2000 : 10000),
   });
   // When job transitions to inactive, force refresh of clip list
   useEffect(() => {

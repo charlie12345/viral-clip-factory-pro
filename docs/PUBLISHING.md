@@ -1,10 +1,13 @@
 # Publishing And Cloning
 
-Public source lives at:
+The canonical source URL is:
 
 ```text
 https://github.com/charlie12345/viral-clip-factory-pro
 ```
+
+For a deployment, use the source tree for its exact release commit or tag in
+`VCF_SOURCE_URL`; the `main` tree is the public default for this project.
 
 ## What Is Committed
 
@@ -33,6 +36,26 @@ git check-ignore -v .env yolov8n.pt dashboard/runtime/provider-settings.json
 # Confirm no real keys in the diff:
 git diff --cached | rg -i 'api[_-]?key|secret|BEGIN (RSA |OPENSSH )?PRIVATE' || true
 ```
+
+## AGPL and Ultralytics release gate
+
+This repository is `AGPL-3.0-only` because it imports Ultralytics YOLO. Before
+making a YOLO-enabled build available to anyone over a network:
+
+1. Publish the complete corresponding source for the exact deployed revision,
+   including your modifications, build scripts, and configuration needed to
+   run it.
+2. Make that source reachable without a login or token, then set
+   `VCF_SOURCE_URL` to its public URL. The dashboard exposes this link to every
+   user through **Source & license**.
+3. Keep the AGPL [LICENSE](../LICENSE), [NOTICE](../NOTICE), and bundled-font
+   notices intact. If you distribute YOLO weights, treat them as covered by the
+   same Ultralytics licensing route.
+
+A private repository does not satisfy this source-offer requirement for a
+network-accessible deployment. If the product must remain proprietary or the
+source cannot be published, use an Ultralytics Enterprise license instead of
+the default AGPL route.
 
 ## Push Updates (maintainers)
 

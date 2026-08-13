@@ -243,19 +243,19 @@ export function LongformReviewPage() {
         <aside className="rounded-2xl border border-white/5 bg-slate-950/70 p-4 lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:overflow-y-auto">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-sm font-semibold text-white"><MessageSquare className="h-4 w-4 text-cyan-300" /> Comments</div>
-            <span className="rounded-full bg-white/5 px-2 py-1 text-[9px] text-slate-500">{review.comments.length}</span>
+            <span className="rounded-full bg-white/5 px-2 py-1 text-[10px] text-slate-500">{review.comments.length}</span>
           </div>
           <div className="mt-4 space-y-3">
             {[...review.comments].reverse().map((item) => (
               <button key={item.id} className="w-full rounded-xl border border-white/5 bg-black/25 p-3 text-left hover:border-cyan-400/20" onClick={() => seek(item.time)}>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[10px] font-semibold text-slate-300">{item.author}</span>
-                  <span className="font-mono text-[9px] text-cyan-300">{formatTime(item.time)}</span>
+                  <span className="font-mono text-[10px] text-cyan-300">{formatTime(item.time)}</span>
                 </div>
                 <p className="mt-2 text-[11px] leading-relaxed text-slate-500">{item.text}</p>
                 <div className="mt-2 flex items-center gap-2">
-                  {item.drawing.length > 0 && <span className="rounded-full bg-pink-500/10 px-2 py-0.5 text-[8px] text-pink-300">drawing</span>}
-                  {item.resolved && <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[8px] text-emerald-300">resolved</span>}
+                  {item.drawing.length > 0 && <span className="rounded-full bg-pink-500/10 px-2 py-0.5 text-[10px] text-pink-300">drawing</span>}
+                  {item.resolved && <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-300">resolved</span>}
                 </div>
               </button>
             ))}
@@ -292,8 +292,8 @@ function ReviewVideo({
   return (
     <div className="overflow-hidden rounded-2xl border border-white/5 bg-black shadow-2xl">
       <div className="flex items-center justify-between border-b border-white/5 bg-slate-950 px-3 py-2">
-        <span className="rounded bg-cyan-500/15 px-2 py-1 text-[9px] font-semibold text-cyan-200">Version {label}</span>
-        <span className="truncate text-[9px] text-slate-600">{url}</span>
+        <span className="rounded bg-cyan-500/15 px-2 py-1 text-[10px] font-semibold text-cyan-200">Version {label}</span>
+        <span className="truncate text-[10px] text-slate-600">{url}</span>
       </div>
       <div
         className={clsx('relative aspect-video bg-black', drawingActive && 'cursor-crosshair')}

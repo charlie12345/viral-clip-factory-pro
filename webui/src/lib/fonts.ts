@@ -21,7 +21,6 @@ export const FONT_LIST: SubtitleFont[] = [
   { id: 'Liberation Sans',        label: 'Arial Bold (Liberation Sans)',   group: 'windows' },
   { id: 'Liberation Serif',       label: 'Times New Roman (Liberation Serif)', group: 'windows' },
   { id: 'Liberation Mono',        label: 'Courier New (Liberation Mono)', group: 'windows' },
-  { id: 'Liberation Sans Narrow', label: 'Arial Narrow (Liberation Sans Narrow)', group: 'windows' },
   { id: 'Comic Neue',             label: 'Comic Neue (Comic Sans)',        group: 'windows' },
   { id: null,                     label: '── Open Source Alternatives ──', group: 'header' },
   { id: 'DejaVu Sans',            label: 'DejaVu Sans Bold',              group: 'open' },

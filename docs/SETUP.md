@@ -509,6 +509,15 @@ The Python pipeline loads `yolov8n.pt`. Do not commit model weights to git.
 
 Depending on your Ultralytics setup, the weight file may be downloaded automatically on first run, or you may need to place it in the repo root manually.
 
+Ultralytics publishes YOLO under AGPL-3.0 or its Enterprise license. This
+project takes the AGPL route, so a network deployment must give every remote
+user access to the complete corresponding source. Set `VCF_SOURCE_URL` in your
+local `.env` to a public URL for the exact deployed revision; the dashboard
+renders that source link in its legal notice. Do not use a private or
+token-protected URL. If you cannot publish the complete corresponding source,
+including any YOLO weights you distribute, obtain an Ultralytics Enterprise
+license before using YOLO in that deployment.
+
 ## Fonts
 
 The clean repo only ships a bundled set of open-source preview fonts. For best bake/preview parity on your machine, install compatible system fonts such as:

@@ -10,10 +10,21 @@ Local-first viral clip generator with:
 - duration-aware Shorts yield modes, confidence tiers, render reserves, and Generate More without re-transcription
 - visual-first multi-clip action/cosplay compilations with motion-aware cuts and transitions, without requiring speech
 - a non-destructive long-form editor with waveform preview, manual/transcript cuts, undo/redo, autosave, and audio finishing
-- baked subtitles, subtitle style previews, clip re-rendering, and an in-browser caption editor
+- baked subtitles, an original animated caption-style studio, clip re-rendering, and an in-browser caption editor
 - a job queue with cancel and history, render profiles, and batch operations
 
 The repository does not include personal secrets, local logs, uploaded media, generated clips, model weights, or machine-specific runtime state.
+
+## Clean-clone privacy and repository safety
+
+This public source tree is designed to be safe to clone and start from scratch:
+
+- Uploaded footage, rendered clips, source copies, download/job history, temporary render files, and local runtime state are ignored by Git.
+- `.env` files, private keys, credential files, model weights, virtual environments, generated web bundles, and local FFmpeg downloads are ignored too.
+- The only credential file in the repository is [`.env.example`](.env.example), which contains empty placeholders. Copy it to `.env` locally; never commit your populated `.env` file.
+- The app creates its upload, output, and job-history directories on the machine that runs it. A fresh clone contains only placeholder directories, not anyone’s content.
+
+If you are publishing a fork or contributing changes, run `git status --ignored` before committing and stage named source files instead of using a blanket `git add -A`.
 
 ## Do I Need API Keys?
 
@@ -57,6 +68,26 @@ Repository: https://github.com/charlie12345/viral-clip-factory-pro
 
 No API keys are required for the core local app. Optional cloud providers
 (Deepgram, Gemini) are off until you enable them per job.
+
+### Fresh GitHub clone: quickest supported path
+
+For a new Linux machine, install **Git**, **Node.js 20–22**, **uv**, and an
+`ffmpeg` build that includes `ffprobe`; then run:
+
+```bash
+git clone https://github.com/charlie12345/viral-clip-factory-pro.git
+cd viral-clip-factory-pro
+./scripts/setup-linux.sh
+cp .env.example .env  # optional; leave provider-key fields empty for local-only use
+npm start
+```
+
+Open `http://localhost:3000`, then verify the installation with
+`./venv/bin/python scripts/doctor.py`. The setup script installs the Python
+environment, Node dependencies, and the production web build. It chooses a
+CPU profile when no supported GPU runtime is available. Windows users should
+follow the PowerShell steps below; server and GPU deployment guidance is in
+[docs/SETUP.md](docs/SETUP.md).
 
 ### Linux
 
@@ -188,7 +219,7 @@ The primary pages use a single sidebar nav, with dedicated editors opened from t
 
 - **Dashboard** — stats, new-render wizard, live log feed
 - **Library** — searchable shorts and long-form grid, confidence tiers, Generate More from saved candidates, batch operations, and thumbnails
-- **Editor** — full-page caption editor (replaces the old modal) with live preview, drag-to-reposition overlay, font/zoom sliders, word-level timing, Apply & Re-render, Bake & Download
+- **Editor** — full-page caption editor (replaces the old modal) with a live caption-style studio, drag-to-reposition overlay, font/zoom sliders, word-level timing, optional static text glow, Apply & Re-render, and Bake & Download
 - **Long-form editor** — edited playback, waveform/playhead, acoustic silence analysis, manual and filler-review cuts, editable boundaries, undo/redo, autosaved drafts, transcript seeking, loudness normalization, limiter, denoise, and hard-picture-cut/microfade controls
 - **Montage** — build either a 15–90 second vertical montage from 2–20 short clips or a 3–15 minute horizontal montage from 1–20 long-form videos, with visual goals, pacing, source coverage, ordering, and transition controls
 - **Jobs** — active job with cancel, full job history, live logs
@@ -328,6 +359,25 @@ See [SETUP.md](docs/SETUP.md) for the full setup guide.
 
 See [THIRD_PARTY.md](docs/THIRD_PARTY.md) for dependency and licensing notes. See [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for build/runtime segfault recovery steps.
 
-## Current License Position
+## License and Ultralytics YOLO
 
-This repo includes a `LICENSE` using `AGPL-3.0-only` as the safest default because the current implementation imports Ultralytics YOLO directly. Review that choice before publishing if you later replace that dependency or obtain separate licensing terms.
+Viral Clip Factory is released under **AGPL-3.0-only**; see [LICENSE](LICENSE).
+That is the open-source route required for this project because it imports
+Ultralytics YOLO and uses its downloadable YOLO weights. Under Ultralytics'
+published licensing terms, an application using its code, models, or training
+pipeline must either release the complete corresponding project source under
+AGPL-3.0 or hold an Ultralytics Enterprise license.
+
+If you deploy the app where people can access it over a network, AGPL section
+13 requires you to prominently offer those users the corresponding source at no
+charge. The UI provides a **Source & license** link for this purpose. Set
+`VCF_SOURCE_URL` to the public URL for the exact source revision you deploy,
+including your changes, scripts, and configuration. A private repository or an
+inaccessible link does not meet that requirement.
+
+Do not distribute a proprietary or private YOLO-enabled build under this
+repository's default terms. For commercial use, either meet the same AGPL
+source-availability requirements or obtain an Ultralytics Enterprise license.
+Alternatively, remove Ultralytics YOLO and its weights and complete a fresh
+license review. See [THIRD_PARTY.md](docs/THIRD_PARTY.md) for the audited
+dependency and font notices.

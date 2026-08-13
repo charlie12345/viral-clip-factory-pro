@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDown, ArrowLeft, ArrowRight, ArrowUp, CheckCircle2, Clapperboard, Film, Gauge,
-  Layers3, Loader2, Play, Scissors, Sparkles, Trash2, Upload,
+  GripVertical, Layers3, Loader2, Play, Scissors, Sparkles, Trash2, Upload,
   WandSparkles, Zap,
 } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -25,6 +25,7 @@ import {
 } from '@/api/compilation-upload';
 import { formatSize } from '@/api/upload';
 import { useActiveJob, useJobs } from '@/hooks/queries';
+import { toast } from '@/store/toasts';
 
 interface QueuedClip {
   id: string;
@@ -117,6 +118,8 @@ export function ActionCompilationPage() {
   const uploadAbort = useRef<AbortController | null>(null);
   const uploadFinalizing = useRef(false);
   const [clips, setClips] = useState<QueuedClip[]>([]);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [options, setOptions] = useState<ActionCompilationOptions>(DEFAULT_OPTIONS);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -301,6 +304,24 @@ export function ActionCompilationPage() {
     });
   }
 
+  /** Lift a source out of position `from` and drop it at `to`, keeping the rest in order. */
+  function reorderClip(from: number, to: number) {
+    if (locked || from === to) return;
+    setClips((current) => {
+      if (from < 0 || from >= current.length || to < 0 || to >= current.length) return current;
+      const next = current.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  }
+
+  function handleDrop(index: number) {
+    if (dragIndex !== null) reorderClip(dragIndex, index);
+    setDragIndex(null);
+    setDragOverIndex(null);
+  }
+
   async function createCompilation(rebuildCompleted = false) {
     if (
       clips.length < minimumSources
@@ -348,6 +369,7 @@ export function ActionCompilationPage() {
       setUploadSessionId(null);
       setOptions(completed.options);
       setQueued(completed.queued);
+      toast('success', 'Montage queued', `${submittedOptions.name} is rendering — track it on the Jobs page.`);
       await queryClient.invalidateQueries({ queryKey: ['job-status'] });
       await queryClient.invalidateQueries({ queryKey: ['jobs'] });
     } catch (reason) {
@@ -356,7 +378,9 @@ export function ActionCompilationPage() {
         setError(null);
       } else {
         setUploadPaused(false);
-        setError(reason instanceof Error ? reason.message : 'Could not create the compilation');
+        const message = reason instanceof Error ? reason.message : 'Could not create the compilation';
+        setError(message);
+        toast('error', 'Montage upload failed', message);
       }
     } finally {
       uploadFinalizing.current = false;
@@ -429,7 +453,7 @@ export function ActionCompilationPage() {
                 >
                   <span className="flex items-center justify-between gap-3">
                     <span className="text-sm font-black text-white">{item.label}</span>
-                    <span className={clsx('rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider', selected ? 'bg-fuchsia-400/20 text-fuchsia-100' : 'bg-white/5 text-slate-400')}>{item.aspect}</span>
+                    <span className={clsx('rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider', selected ? 'bg-fuchsia-400/20 text-fuchsia-100' : 'bg-white/5 text-slate-400')}>{item.aspect}</span>
                   </span>
                   <span className="mt-1.5 block text-[11px] leading-5 text-slate-400">{item.detail}</span>
                 </button>
@@ -517,10 +541,46 @@ export function ActionCompilationPage() {
                   : `Large videos upload sequentially in resumable ${formatSize(chunkBytes)} chunks. ${formatSize(usableStorageBytes)} is currently usable for source footage.`}
           </div>
 
+          {clips.length > 1 && !locked && (
+            <p className="text-[10px] text-slate-500">
+              Drag a {sourceNoun} to reorder it, or use the arrow buttons.
+            </p>
+          )}
+
           {clips.length > 0 && (
             <div className="grid gap-3 sm:grid-cols-2">
               {clips.map((clip, index) => (
-                <article key={clip.id} className="overflow-hidden rounded-xl border border-white/10 bg-black/25">
+                <article
+                  key={clip.id}
+                  draggable={!locked}
+                  onDragStart={(event) => {
+                    if (locked) return;
+                    setDragIndex(index);
+                    event.dataTransfer.effectAllowed = 'move';
+                    // Firefox only starts a drag when some data is set.
+                    event.dataTransfer.setData('text/plain', String(index));
+                  }}
+                  onDragOver={(event) => {
+                    if (locked || dragIndex === null) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'move';
+                    if (dragOverIndex !== index) setDragOverIndex(index);
+                  }}
+                  onDrop={(event) => {
+                    if (locked) return;
+                    event.preventDefault();
+                    handleDrop(index);
+                  }}
+                  onDragEnd={() => { setDragIndex(null); setDragOverIndex(null); }}
+                  className={clsx(
+                    'overflow-hidden rounded-xl border bg-black/25 transition',
+                    dragIndex === index && 'opacity-40',
+                    dragOverIndex === index && dragIndex !== index
+                      ? 'border-cyan-300/60 ring-2 ring-cyan-300/40'
+                      : 'border-white/10',
+                    !locked && 'cursor-grab active:cursor-grabbing',
+                  )}
+                >
                   <div className="relative aspect-video bg-black">
                     <video className="h-full w-full object-contain" src={clip.previewUrl} muted controls playsInline preload="metadata" />
                     <span className="absolute left-2 top-2 grid h-7 min-w-7 place-items-center rounded-full bg-black/75 px-2 text-[11px] font-black text-white ring-1 ring-white/15">
@@ -528,6 +588,10 @@ export function ActionCompilationPage() {
                     </span>
                   </div>
                   <div className="flex min-w-0 items-center gap-2 p-3">
+                    <GripVertical
+                      className={clsx('h-4 w-4 shrink-0', locked ? 'text-slate-700' : 'text-slate-500')}
+                      aria-hidden="true"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-semibold text-slate-200" title={clip.file.name}>{clip.file.name}</p>
                       <p className="mt-0.5 text-[10px] text-slate-500">{formatSize(clip.file.size)}</p>

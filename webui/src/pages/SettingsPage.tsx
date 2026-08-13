@@ -4,10 +4,12 @@ import { Plus, Trash2, Save, RotateCcw, FolderOpen, Sparkles, Server, Cpu, Gauge
 import { clsx } from 'clsx';
 import { api, type Profile, type ProviderSecretSource, type ProviderSettingsUpdate } from '@/api/client';
 import { StorageManagerPanel } from '@/components/admin/StorageManagerPanel';
+import { Button, ConfirmDialog, NumberField, Panel, Select, ToggleGroup } from '@/components/ui';
+import { CaptionStylePicker } from '@/components/captions/CaptionStylePicker';
 import { useUIStore } from '@/store/ui';
+import { toast } from '@/store/toasts';
 import { CLIP_VOLUME_OPTIONS, DEFAULT_RENDER_SETTINGS, EXPORT_PRESETS, FRAMING_MODES, MAX_CLIPS, MAX_DURATIONS } from '@/lib/render-options';
 import type { RenderSettings } from '@/lib/render-options';
-import { STYLE_LIST } from '@/lib/subtitle-styles';
 import { SEGMENT_PRESETS } from '@/lib/render-options';
 
 export function SettingsPage() {
@@ -40,15 +42,33 @@ export function SettingsPage() {
 
   const save = useMutation({
     mutationFn: (p: Profile) => api.saveProfile(p),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['profiles'] }),
+    onSuccess: (_result, p) => {
+      qc.invalidateQueries({ queryKey: ['profiles'] });
+      toast('success', `Profile "${p.name}" saved`);
+    },
+    onError: (error) => {
+      toast('error', 'Profile could not be saved', (error as Error).message);
+    },
   });
   const del = useMutation({
     mutationFn: (id: string) => api.deleteProfile(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['profiles'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['profiles'] });
+      toast('info', 'Profile deleted');
+    },
+    onError: (error) => {
+      toast('error', 'Profile could not be deleted', (error as Error).message);
+    },
   });
   const saveDefaults = useMutation({
     mutationFn: () => api.saveSettings(uploadDefaults),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] });
+      toast('success', 'Upload defaults saved');
+    },
+    onError: (error) => {
+      toast('error', 'Defaults were not saved', (error as Error).message);
+    },
   });
 
   function applyProfile(p: Profile) {
@@ -76,26 +96,22 @@ export function SettingsPage() {
       </header>
 
       {/* Editor preferences */}
-      <section className="panel p-5 space-y-4">
+      <Panel className="p-5 space-y-4">
         <h2 className="text-sm font-bold text-white flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-accent-pink" /> Editor preferences
         </h2>
         <p className="text-[12px] text-slate-500 -mt-3">These default to whatever you last used in the editor.</p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 md:grid-cols-1 lg:grid-cols-3">
           <div>
-            <div className="label">Default Caption Style</div>
-            <select className="input" value={preferredStyle} onChange={(e) => setPreferredStyle(e.target.value)}>
-              {STYLE_LIST.map((s) => 'sep' in s ? null : <option key={s.id} value={s.id}>{s.label}</option>)}
-              <option value="none">No Captions</option>
-            </select>
+            <CaptionStylePicker value={preferredStyle} onChange={setPreferredStyle} label="Default Caption Style" />
           </div>
           <div>
             <div className="label">Default Word Animation</div>
-            <select className="input" value={preferredAnimation} onChange={(e) => setPreferredAnimation(e.target.value)}>
+            <Select value={preferredAnimation} onChange={(e) => setPreferredAnimation(e.target.value)}>
               {['none','popIn','fadeIn','slideUp','slideDown','flip','typewriter','wave','zoom','bounce','shake','glow'].map((a) => (
                 <option key={a} value={a}>{a}</option>
               ))}
-            </select>
+            </Select>
           </div>
           <div>
             <div className="label">Behavior</div>
@@ -105,31 +121,31 @@ export function SettingsPage() {
             </label>
           </div>
         </div>
-      </section>
+      </Panel>
 
       {/* Upload defaults */}
-      <section className="panel p-5 space-y-4">
+      <Panel className="p-5 space-y-4">
         <h2 className="text-sm font-bold text-white flex items-center gap-2">
           <Save className="h-4 w-4 text-accent-blue" /> Upload defaults
         </h2>
         <p className="text-[12px] text-slate-500 -mt-3">Used when you start a new render from the Dashboard.</p>
         <RenderSettingsEditor value={uploadDefaults} onChange={setUploadDefaults} />
         <div className="flex items-center gap-2">
-          <button className="btn-primary" disabled={saveDefaults.isPending} onClick={() => saveDefaults.mutate()}>
+          <Button variant="primary" disabled={saveDefaults.isPending} onClick={() => saveDefaults.mutate()}>
             {saveDefaults.isPending ? 'Saving…' : 'Save defaults'}
-          </button>
-          <button className="btn-secondary" onClick={() => setUploadDefaults(DEFAULT_RENDER_SETTINGS)}>
+          </Button>
+          <Button variant="secondary" onClick={() => setUploadDefaults(DEFAULT_RENDER_SETTINGS)}>
             <RotateCcw className="h-3.5 w-3.5" /> Reset to factory
-          </button>
-          {saveDefaults.isSuccess && <span className="text-[11px] text-emerald-300">Browser and server defaults match.</span>}
+          </Button>
+          {saveDefaults.isSuccess && <span role="status" className="text-[11px] text-emerald-300">Browser and server defaults match.</span>}
           {saveDefaults.isError && <span className="text-[11px] text-red-300" role="alert">Defaults were not saved: {(saveDefaults.error as Error).message}</span>}
         </div>
-      </section>
+      </Panel>
 
       <ProviderCredentialsSection />
 
       {/* Hardware capability probe */}
-      <section className="panel p-5 space-y-4">
+      <Panel className="p-5 space-y-4">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-sm font-bold text-white flex items-center gap-2">
             <Cpu className="h-4 w-4 text-accent-blue" /> Hardware acceleration
@@ -193,10 +209,10 @@ export function SettingsPage() {
         <p className="text-[11px] leading-relaxed text-slate-500">
           Auto mode runs a real encoder probe before each process starts. Compiled encoders that cannot access hardware are skipped.
         </p>
-      </section>
+      </Panel>
 
       {/* Profiles */}
-      <section className="panel p-5 space-y-4">
+      <Panel className="p-5 space-y-4">
         <h2 className="text-sm font-bold text-white flex items-center gap-2">
           <FolderOpen className="h-4 w-4 text-accent-violet" /> Render profiles
         </h2>
@@ -241,9 +257,9 @@ export function SettingsPage() {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
             />
-            <button className="btn-primary" disabled={!newName.trim() || save.isPending} onClick={saveCurrent}>
+            <Button variant="primary" disabled={!newName.trim() || save.isPending} onClick={saveCurrent}>
               <Plus className="h-3.5 w-3.5" /> Save
-            </button>
+            </Button>
           </div>
           <details>
             <summary className="cursor-pointer text-[12px] text-slate-400 hover:text-slate-300">Use custom settings for this profile</summary>
@@ -252,13 +268,13 @@ export function SettingsPage() {
             </div>
           </details>
         </div>
-      </section>
+      </Panel>
 
       <StorageManagerPanel />
 
       {/* Server info */}
       {serverSettings && (
-        <section className="panel p-5 space-y-2">
+        <Panel className="p-5 space-y-2">
           <h2 className="text-sm font-bold text-white flex items-center gap-2">
             <Server className="h-4 w-4 text-slate-400" /> Server
           </h2>
@@ -270,7 +286,7 @@ export function SettingsPage() {
               </div>
             ))}
           </dl>
-        </section>
+        </Panel>
       )}
     </div>
   );
@@ -282,6 +298,12 @@ type ProviderMutationInput = {
   clearInputs?: Array<'deepgram' | 'gemini' | 'local'>;
   resetEndpointDrafts?: boolean;
 };
+
+const PROVIDER_LABELS = {
+  deepgram: 'Deepgram',
+  gemini: 'Gemini',
+  local: 'local endpoint',
+} as const;
 
 function ProviderCredentialsSection() {
   const qc = useQueryClient();
@@ -298,6 +320,7 @@ function ProviderCredentialsSection() {
   const [localLlmUrlDraft, setLocalLlmUrlDraft] = useState<string | undefined>();
   const [localLlmModelDraft, setLocalLlmModelDraft] = useState<string | undefined>();
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [pendingKeyRemoval, setPendingKeyRemoval] = useState<'deepgram' | 'gemini' | 'local' | null>(null);
 
   const updateProvider = useMutation({
     mutationFn: ({ payload }: ProviderMutationInput) => api.saveProviderSettings(payload),
@@ -312,10 +335,14 @@ function ProviderCredentialsSection() {
         setLocalLlmModelDraft(undefined);
       }
       setSuccessMessage(variables.successMessage);
+      toast('success', variables.successMessage);
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['provider-settings'] }),
         qc.invalidateQueries({ queryKey: ['system-capabilities'] }),
       ]);
+    },
+    onError: (error) => {
+      toast('error', 'Provider settings were not saved', (error as Error).message);
     },
   });
 
@@ -359,13 +386,7 @@ function ProviderCredentialsSection() {
   }
 
   function clearSavedKey(provider: 'deepgram' | 'gemini' | 'local') {
-    const labels = {
-      deepgram: 'Deepgram',
-      gemini: 'Gemini',
-      local: 'local endpoint',
-    } as const;
-    if (!window.confirm(`Remove the saved ${labels[provider]} API key from this server?`)) return;
-
+    const labels = PROVIDER_LABELS;
     const payload: ProviderSettingsUpdate = provider === 'deepgram'
       ? { clearDeepgramApiKey: true }
       : provider === 'gemini'
@@ -379,7 +400,7 @@ function ProviderCredentialsSection() {
   }
 
   return (
-    <section className="panel p-5 space-y-4" aria-labelledby="provider-credentials-heading">
+    <Panel className="p-5 space-y-4" aria-labelledby="provider-credentials-heading">
       <div>
         <h2 id="provider-credentials-heading" className="flex items-center gap-2 text-sm font-bold text-white">
           <KeyRound className="h-4 w-4 text-accent-blue" /> Provider credentials
@@ -430,7 +451,7 @@ function ProviderCredentialsSection() {
                   configured={data.deepgram.configured}
                   source={data.deepgram.source}
                   disabled={updateProvider.isPending}
-                  onClear={() => clearSavedKey('deepgram')}
+                  onClear={() => setPendingKeyRemoval('deepgram')}
                 />
                 <ProviderCredentialField
                   id="gemini-api-key"
@@ -441,7 +462,7 @@ function ProviderCredentialsSection() {
                   configured={data.gemini.configured}
                   source={data.gemini.source}
                   disabled={updateProvider.isPending}
-                  onClear={() => clearSavedKey('gemini')}
+                  onClear={() => setPendingKeyRemoval('gemini')}
                 />
               </div>
             </div>
@@ -498,7 +519,7 @@ function ProviderCredentialsSection() {
                 configured={data.localSemantic.apiKeyConfigured}
                 source={data.localSemantic.apiKeySource}
                 disabled={updateProvider.isPending}
-                onClear={() => clearSavedKey('local')}
+                onClear={() => setPendingKeyRemoval('local')}
                 hideStatus
               />
             </div>
@@ -518,17 +539,35 @@ function ProviderCredentialsSection() {
           </div>
 
           <div className="flex items-center justify-end">
-            <button
+            <Button
               type="submit"
-              className="btn-primary active:scale-[0.98]"
+              variant="primary"
+              className="active:scale-[0.98]"
               disabled={!hasDraftChanges || endpointNeedsReplacementKey || updateProvider.isPending}
             >
               <Save className="h-3.5 w-3.5" /> {updateProvider.isPending ? 'Saving…' : 'Save provider settings'}
-            </button>
+            </Button>
           </div>
         </form>
       ) : null}
-    </section>
+
+      <ConfirmDialog
+        open={pendingKeyRemoval !== null}
+        title="Remove saved API key?"
+        body={pendingKeyRemoval
+          ? `The saved ${PROVIDER_LABELS[pendingKeyRemoval]} API key is deleted from this server. Renders that need it will fail until a new key is saved.`
+          : undefined}
+        confirmLabel="Remove key"
+        danger
+        confirmDisabled={updateProvider.isPending}
+        onCancel={() => setPendingKeyRemoval(null)}
+        onConfirm={() => {
+          const provider = pendingKeyRemoval;
+          setPendingKeyRemoval(null);
+          if (provider) clearSavedKey(provider);
+        }}
+      />
+    </Panel>
   );
 }
 
@@ -622,26 +661,21 @@ function RenderSettingsEditor({ value, onChange }: { value: RenderSettings; onCh
   }
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-3">
-      <div>
-        <div className="label">Mode</div>
-        <div className="grid grid-cols-2 gap-1">
-          {(['shorts', 'longform'] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => set('mode', m)}
-              className={clsx(
-                'rounded-md px-2 py-1.5 text-xs font-semibold transition',
-                value.mode === m ? 'bg-brand-500/25 text-white ring-1 ring-brand-500/40' : 'bg-white/5 text-slate-300 hover:bg-white/10',
-              )}
-            >{m === 'shorts' ? 'Shorts' : 'Long'}</button>
-          ))}
-        </div>
-      </div>
+      <ToggleGroup
+        label="Mode"
+        columns={2}
+        gapClassName="gap-1"
+        inactiveClassName="bg-white/5 text-slate-300 hover:bg-white/10"
+        options={[
+          { value: 'shorts', label: 'Shorts' },
+          { value: 'longform', label: 'Long' },
+        ]}
+        value={value.mode}
+        onChange={(m) => set('mode', m)}
+      />
       <div>
         <div className="label">Export Target</div>
-        <select
-          className="input"
+        <Select
           value={value.exportPreset}
           onChange={(e) => {
             const exportPreset = e.target.value as RenderSettings['exportPreset'];
@@ -650,48 +684,47 @@ function RenderSettingsEditor({ value, onChange }: { value: RenderSettings; onCh
           }}
         >
           {EXPORT_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
-        </select>
+        </Select>
         <p className="mt-1 text-[10px] text-slate-500">{EXPORT_PRESETS.find((item) => item.id === value.exportPreset)?.detail}</p>
       </div>
       <div>
         <div className="label">Compute</div>
-        <select className="input" value={value.computeDevice} onChange={(e) => set('computeDevice', e.target.value as RenderSettings['computeDevice'])}>
+        <Select value={value.computeDevice} onChange={(e) => set('computeDevice', e.target.value as RenderSettings['computeDevice'])}>
           <option value="auto">Auto detect</option>
           <option value="rocm">AMD ROCm</option>
           <option value="cuda">NVIDIA CUDA</option>
           <option value="cpu">CPU</option>
-        </select>
+        </Select>
       </div>
       <div>
         <div className="label">Video Encoder</div>
-        <select className="input" value={value.videoEncoder} onChange={(e) => set('videoEncoder', e.target.value as RenderSettings['videoEncoder'])}>
+        <Select value={value.videoEncoder} onChange={(e) => set('videoEncoder', e.target.value as RenderSettings['videoEncoder'])}>
           <option value="auto">Auto detect</option>
           <option value="vaapi">AMD VAAPI · Linux</option>
           <option value="amf">AMD AMF · Windows</option>
           <option value="nvenc">NVIDIA NVENC</option>
           <option value="cpu">CPU x264/x265</option>
-        </select>
+        </Select>
       </div>
       <div>
         <div className="label">Transcription Engine</div>
-        <select className="input" value={value.transcriptionProvider} onChange={(e) => set('transcriptionProvider', e.target.value as RenderSettings['transcriptionProvider'])}>
+        <Select value={value.transcriptionProvider} onChange={(e) => set('transcriptionProvider', e.target.value as RenderSettings['transcriptionProvider'])}>
           <option value="auto">Auto · local</option>
           <option value="openai_whisper">PyTorch Whisper · local</option>
           <option value="whisper_cpp">whisper.cpp · local</option>
           <option value="deepgram">Deepgram Nova-3 · cloud</option>
-        </select>
+        </Select>
       </div>
       <div>
         <div className="label">Speech Model</div>
-        <select className="input" value={value.transcriptionModel} onChange={(e) => set('transcriptionModel', e.target.value as RenderSettings['transcriptionModel'])}>
+        <Select value={value.transcriptionModel} onChange={(e) => set('transcriptionModel', e.target.value as RenderSettings['transcriptionModel'])}>
           {(['tiny', 'base', 'small', 'medium', 'large-v3', 'turbo'] as const).map((model) => <option key={model} value={model}>{model}</option>)}
-        </select>
+        </Select>
         {value.transcriptionProvider === 'deepgram' && <p className="mt-1 text-[10px] text-sky-300">Ignored by Deepgram Nova-3.</p>}
       </div>
       <div>
         <div className="label">Transcription Pass</div>
-        <select
-          className="input"
+        <Select
           value={value.transcriptionPreset}
           onChange={(event) => {
             const transcriptionPreset = event.target.value as RenderSettings['transcriptionPreset'];
@@ -704,7 +737,7 @@ function RenderSettingsEditor({ value, onChange }: { value: RenderSettings; onCh
         >
           <option value="draft">Draft · turbo</option>
           <option value="final">Final · large-v3</option>
-        </select>
+        </Select>
       </div>
       <div>
         <div className="label">Speech Language</div>
@@ -713,44 +746,39 @@ function RenderSettingsEditor({ value, onChange }: { value: RenderSettings; onCh
       {value.mode === 'shorts' && (
         <div>
           <div className="label">Shorts Framing</div>
-          <select className="input" value={value.framingMode || 'auto'} onChange={(e) => set('framingMode', e.target.value as RenderSettings['framingMode'])}>
+          <Select value={value.framingMode || 'auto'} onChange={(e) => set('framingMode', e.target.value as RenderSettings['framingMode'])}>
             {FRAMING_MODES.map((mode) => <option key={mode.id} value={mode.id}>{mode.label}</option>)}
-          </select>
+          </Select>
         </div>
       )}
       {value.mode === 'shorts' && (
         <>
           <div>
             <div className="label">Max Duration</div>
-            <select className="input" value={value.maxDuration} onChange={(e) => set('maxDuration', parseInt(e.target.value))}>
+            <Select value={value.maxDuration} onChange={(e) => set('maxDuration', parseInt(e.target.value))}>
               {MAX_DURATIONS.map((d) => <option key={d} value={d}>{d >= 60 ? `${d / 60} min` : `${d}s`}</option>)}
-            </select>
+            </Select>
           </div>
           <div>
             <div className="label">Clip Volume</div>
-            <select className="input" value={value.clipVolume} onChange={(e) => set('clipVolume', e.target.value as RenderSettings['clipVolume'])}>
+            <Select value={value.clipVolume} onChange={(e) => set('clipVolume', e.target.value as RenderSettings['clipVolume'])}>
               {CLIP_VOLUME_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label} · {option.detail}</option>)}
-            </select>
+            </Select>
             <p className="mt-1 text-[10px] text-slate-500">Balanced is the default review set; More broadens coverage.</p>
           </div>
           {value.clipVolume === 'exact' && (
-            <div>
-              <label className="label" htmlFor="settings-target-clips">Target Clips</label>
-              <input
-                id="settings-target-clips"
-                className="input"
-                type="number"
-                min={1}
-                max={value.maxClips}
-                value={value.targetClips}
-                onChange={(e) => set('targetClips', Math.min(value.maxClips, Math.max(1, Number.parseInt(e.target.value, 10) || 1)))}
-              />
-            </div>
+            <NumberField
+              id="settings-target-clips"
+              label="Target Clips"
+              min={1}
+              max={value.maxClips}
+              value={value.targetClips}
+              onChange={(v) => set('targetClips', Math.trunc(v))}
+            />
           )}
           <div>
             <div className="label">Hard Export Cap</div>
-            <select
-              className="input"
+            <Select
               value={value.maxClips}
               onChange={(e) => {
                 const maxClips = parseInt(e.target.value);
@@ -758,7 +786,7 @@ function RenderSettingsEditor({ value, onChange }: { value: RenderSettings; onCh
               }}
             >
               {MAX_CLIPS.map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
+            </Select>
             <p className="mt-1 text-[10px] text-slate-500">Never render more than this many clips.</p>
           </div>
           <label className="flex items-start gap-2 rounded-lg border border-emerald-500/15 bg-emerald-500/[0.05] p-3 text-xs text-slate-200">
@@ -782,17 +810,10 @@ function RenderSettingsEditor({ value, onChange }: { value: RenderSettings; onCh
           </div>
         </div>
       )}
-      {value.mode === 'shorts' && <div>
-        <div className="label">Caption Style</div>
-        <select className="input" value={value.subtitleStyle} onChange={(e) => set('subtitleStyle', e.target.value)}>
-          {STYLE_LIST.map((s) => 'sep' in s ? null : <option key={s.id} value={s.id}>{s.label}</option>)}
-          <option value="none">No Captions</option>
-        </select>
-      </div>}
+      {value.mode === 'shorts' && <CaptionStylePicker value={value.subtitleStyle} onChange={(style) => set('subtitleStyle', style)} />}
       <div>
         <div className="label">Time Segment</div>
-        <select
-          className="input"
+        <Select
           value={value.startTime === '' && value.endTime === '' ? 'full' :
                  value.startTime === '0' && value.endTime === '60' ? 'first60' :
                  value.startTime === '0' && value.endTime === '180' ? 'first180' :
@@ -806,7 +827,7 @@ function RenderSettingsEditor({ value, onChange }: { value: RenderSettings; onCh
         >
           {SEGMENT_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
           <option value="custom">Custom…</option>
-        </select>
+        </Select>
       </div>
       <div>
         <div className="label">Upscale</div>

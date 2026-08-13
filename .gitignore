@@ -52,6 +52,12 @@ viral_clips/_sources/*
 *.mpg
 *.3gp
 *.ts
+# This is a TypeScript project. Keep application, test, and setup source files
+# visible to Git while still ignoring transport-stream footage elsewhere.
+!webui/**/*.ts
+!dashboard/**/*.ts
+!scripts/**/*.ts
+!tests/**/*.ts
 *.m4a
 *.wav
 *.mp3
@@ -73,6 +79,11 @@ models/
 
 # Generated web build (rebuilt by setup scripts)
 dashboard/public/dist/
+
+# Local tool downloads — setup expects ffmpeg on PATH; do not vendor binaries.
+tools/ffmpeg-current
+tools/ffmpeg-*/
+tools/*.tar.*
 
 # Editor / OS junk
 *.log
