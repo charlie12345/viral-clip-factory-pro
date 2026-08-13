@@ -29,7 +29,7 @@ export function AppLayout() {
   });
   const isLongformEditor = location.pathname.startsWith('/longform-editor/');
   const shortcutsHelp = useGlobalShortcuts();
-  const sourceUrl = legal?.sourceUrl ?? 'https://github.com/charlie12345/viral-clip-factory-pro';
+  const sourceUrl = legal?.sourceUrl ?? 'https://github.com/charlie12345/viral-clip-factory-pro/tree/main';
 
   // Title reflects current page
   useEffect(() => {

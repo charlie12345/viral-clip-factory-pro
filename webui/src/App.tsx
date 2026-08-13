@@ -34,7 +34,7 @@ function LegalFooter() {
     staleTime: Infinity,
     retry: 0,
   });
-  const sourceUrl = legal?.sourceUrl ?? 'https://github.com/charlie12345/viral-clip-factory-pro';
+  const sourceUrl = legal?.sourceUrl ?? 'https://github.com/charlie12345/viral-clip-factory-pro/tree/main';
 
   return (
     <footer className="border-t border-white/5 bg-app-bg px-4 py-3 text-center text-[11px] text-slate-500">

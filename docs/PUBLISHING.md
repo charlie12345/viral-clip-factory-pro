@@ -6,6 +6,9 @@ The canonical source URL is:
 https://github.com/charlie12345/viral-clip-factory-pro
 ```
 
+For a deployment, use the source tree for its exact release commit or tag in
+`VCF_SOURCE_URL`; the `main` tree is the public default for this project.
+
 ## What Is Committed
 
 Commit source code, docs, config examples, bundled open-source fonts, tests,

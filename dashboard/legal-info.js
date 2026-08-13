@@ -1,6 +1,6 @@
 'use strict';
 
-const DEFAULT_SOURCE_URL = 'https://github.com/charlie12345/viral-clip-factory-pro';
+const DEFAULT_SOURCE_URL = 'https://github.com/charlie12345/viral-clip-factory-pro/tree/main';
 
 function sourceUrlFromEnvironment(environment = process.env) {
     const configured = String(environment.VCF_SOURCE_URL || '').trim();
