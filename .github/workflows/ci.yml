@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# Windows GitHub runners otherwise use a legacy console encoding, while the
+# CLI emits user-facing Unicode status markers during fallback paths.
+env:
+  PYTHONUTF8: "1"
+
 jobs:
   test:
     strategy:
